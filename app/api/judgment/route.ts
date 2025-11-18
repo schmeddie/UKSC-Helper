@@ -227,10 +227,20 @@ export async function GET(request: NextRequest) {
           }
 
           if (typeof node === 'object') {
-            // If this is a <p> tag
+            // If this is a <p> tag with text content
             if (node['#text']) {
-              const trimmed = node['#text'].trim();
-              if (trimmed) paragraphs.push(trimmed);
+              // Handle #text as string, object, or array
+              if (typeof node['#text'] === 'string') {
+                const trimmed = node['#text'].trim();
+                if (trimmed) paragraphs.push(trimmed);
+              } else if (typeof node['#text'] === 'object') {
+                // #text might be an object with nested content, stringify it
+                const text = JSON.stringify(node['#text']);
+                const trimmed = text.trim();
+                if (trimmed && trimmed !== '{}' && trimmed !== '[]') {
+                  paragraphs.push(trimmed);
+                }
+              }
             }
 
             // Recursively process child nodes
