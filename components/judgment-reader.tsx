@@ -31,35 +31,35 @@ function StructuredBlock({ block, onCitationClick }: StructuredBlockProps) {
   switch (block.type) {
     case 'h2':
       return (
-        <h2 className={`${baseClasses} text-2xl font-bold text-slate-900 border-b-2 border-gold pb-3 mb-4`}>
+        <h2 className={`${baseClasses} text-3xl font-bold text-oxford mt-12 mb-6 pb-3 border-b-3 border-gold uppercase tracking-wide`}>
           <TextHighlighter content={block.text} onCitationClick={onCitationClick} />
         </h2>
       );
 
     case 'h3':
       return (
-        <h3 className={`${baseClasses} text-xl font-bold text-slate-800 mt-8 mb-3`}>
+        <h3 className={`${baseClasses} text-xl font-bold text-slate-800 mt-8 mb-4`}>
           <TextHighlighter content={block.text} onCitationClick={onCitationClick} />
         </h3>
       );
 
     case 'p':
       return (
-        <p className={`${baseClasses} text-lg text-slate-800`}>
+        <p className={`${baseClasses} text-lg text-slate-800 mb-4`}>
           <TextHighlighter content={block.text} onCitationClick={onCitationClick} />
         </p>
       );
 
     case 'quote':
       return (
-        <blockquote className={`${baseClasses} text-lg text-slate-600 italic border-l-4 border-blue-400 pl-6 py-2 my-4`}>
+        <blockquote className={`${baseClasses} text-lg text-slate-600 italic border-l-4 border-blue-400 pl-6 py-3 my-6 bg-slate-50 rounded-r`}>
           <TextHighlighter content={block.text} onCitationClick={onCitationClick} />
         </blockquote>
       );
 
     default:
       return (
-        <p className={`${baseClasses} text-lg text-slate-800`}>
+        <p className={`${baseClasses} text-lg text-slate-800 mb-4`}>
           <TextHighlighter content={block.text} onCitationClick={onCitationClick} />
         </p>
       );

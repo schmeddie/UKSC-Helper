@@ -69,30 +69,54 @@ function chunkText(text: string, maxChunkSize: number = 30000): string[] {
 }
 
 /**
- * Process a single chunk and return blocks
+ * Process a single chunk with streaming and send blocks as they're generated
  */
-async function processChunk(
+async function processChunkStreaming(
   chunk: string,
   chunkIndex: number,
   totalChunks: number,
-  apiKey: string
-): Promise<ContentBlock[]> {
-  const systemPrompt = `You are a sophisticated Legal Editor. Your task is to take a raw UK Supreme Court judgment chunk and reformat it into a clean, structured JSON stream for a web reader.
+  apiKey: string,
+  controller: ReadableStreamDefaultController,
+  encoder: TextEncoder
+): Promise<void> {
+  const systemPrompt = `You are a sophisticated Legal Document Formatter for UK Supreme Court judgments. Your job is to transform raw, messy judgment text into a beautifully structured, hierarchical format.
 
-CRITICAL RULES:
-1. NO SUMMARIZATION. You must retain the FULL text of this chunk.
-2. Structure the content into a linear list of "blocks".
-3. Detect and assign the correct type to each block:
-   - "h2": For Judge names (e.g., "LORD REED:") or major section titles.
-   - "h3": For sub-headers (e.g., "The Background").
-   - "p": For standard paragraphs.
-   - "quote": For blockquotes, legislation citations, or excerpts.
-4. CLEANUP:
-   - Remove "Table of Contents" lists.
-   - Remove page numbers or weird XML artifacts.
-   - Fix formatting for Judge names (e.g., turn "Lord Reed:" into a clean "h2").
-5. This is chunk ${chunkIndex + 1} of ${totalChunks}. Only return the "content" array, not the full structure.
-6. Output strictly as a JSON array: [{ "type": "h2"|"h3"|"p"|"quote", "text": "string" }, ...]`;
+STRUCTURAL IDENTIFICATION:
+1. Identify and classify these section types in order of hierarchy:
+   - "h2": Major structural sections (e.g., "Introduction", "Background", "The Appeal", "Discussion", "Conclusion", numbered parts like "I. Introduction", "II. The Facts")
+   - "h2": Judge names when they introduce their opinion (e.g., "LORD REED:", "LADY HALE:")
+   - "h3": Subsections and topic headers (e.g., "The legislative framework", "The first ground of appeal", "Analysis")
+   - "p": Regular paragraphs of judgment text
+   - "quote": Quoted legislation, case law excerpts, or indented legal text
+
+2. FORMATTING RULES:
+   - Preserve ALL text - no summarization
+   - Remove table of contents, page numbers, running headers/footers
+   - Clean up judge names: "Lord Reed:" → "LORD REED" (h2)
+   - Identify structural divisions: "Introduction", "Part I", "The Background", etc. → h2
+   - Subsection headers like "The legislative framework" → h3
+   - Regular narrative paragraphs → p
+   - Indented quotes from statutes or cases → quote
+
+3. RECOGNITION PATTERNS:
+   - Lines in ALL CAPS or Title Case followed by content = likely h2
+   - Lines ending with colons that introduce sections = likely h3
+   - Text introduced by "Lord/Lady [Name]:" = h2 (judgment author)
+   - Numbered sections (I., II., 1., 2., etc.) at start of line = h2 or h3
+   - Indented or quoted statutory text = quote
+
+4. OUTPUT FORMAT:
+   This is chunk ${chunkIndex + 1} of ${totalChunks}.
+   Return ONLY a JSON array: [{ "type": "h2"|"h3"|"p"|"quote", "text": "cleaned text" }, ...]
+
+Example:
+[
+  { "type": "h2", "text": "LORD REED" },
+  { "type": "h2", "text": "Introduction" },
+  { "type": "p", "text": "This appeal concerns the interpretation of..." },
+  { "type": "h3", "text": "The legislative framework" },
+  { "type": "p", "text": "Section 1 of the Act provides..." }
+]`;
 
   try {
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -111,34 +135,95 @@ CRITICAL RULES:
         ],
         response_format: { type: 'json_object' },
         max_tokens: 16000,
+        stream: true, // Enable streaming
       }),
     });
 
     if (!response.ok) {
       console.error(`Chunk ${chunkIndex + 1} API error:`, response.status);
-      return [];
+      return;
     }
 
-    const data = await response.json();
-    const structuredText = data.choices?.[0]?.message?.content;
-
-    if (!structuredText) {
-      return [];
+    if (!response.body) {
+      console.error(`Chunk ${chunkIndex + 1}: No response body`);
+      return;
     }
 
-    const parsed = JSON.parse(structuredText);
-    let blocks: ContentBlock[] = [];
+    // Read the streaming response
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let accumulatedJson = '';
 
-    if (Array.isArray(parsed)) {
-      blocks = parsed;
-    } else if (parsed.content && Array.isArray(parsed.content)) {
-      blocks = parsed.content;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const data = line.slice(6);
+          if (data === '[DONE]') continue;
+
+          try {
+            const parsed = JSON.parse(data);
+            const content = parsed.choices?.[0]?.delta?.content;
+
+            if (content) {
+              accumulatedJson += content;
+
+              // Try to parse complete blocks as they form
+              // Look for complete block patterns: { "type": "...", "text": "..." }
+              const blockMatches = accumulatedJson.match(/\{\s*"type"\s*:\s*"(h2|h3|p|quote)"\s*,\s*"text"\s*:\s*"([^"\\]*(\\.[^"\\]*)*)"\s*\}/g);
+
+              if (blockMatches && blockMatches.length > 0) {
+                for (const blockMatch of blockMatches) {
+                  try {
+                    const block = JSON.parse(blockMatch);
+                    // Send the block to client immediately
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'block', block })}\n\n`));
+                  } catch (e) {
+                    // Block not yet complete, continue accumulating
+                  }
+                }
+              }
+            }
+          } catch (e) {
+            // Invalid JSON in stream, continue
+          }
+        }
+      }
     }
 
-    return blocks;
+    // Try to parse any remaining content
+    if (accumulatedJson) {
+      try {
+        let parsed: any;
+        // Try parsing as array first
+        if (accumulatedJson.trim().startsWith('[')) {
+          parsed = JSON.parse(accumulatedJson);
+        } else {
+          // Might be wrapped in object
+          const fullJson = JSON.parse(accumulatedJson);
+          parsed = fullJson.content || fullJson;
+        }
+
+        if (Array.isArray(parsed)) {
+          for (const block of parsed) {
+            if (block.type && block.text) {
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'block', block })}\n\n`));
+            }
+          }
+        }
+      } catch (e) {
+        console.error(`Chunk ${chunkIndex + 1}: Error parsing accumulated JSON:`, e);
+      }
+    }
   } catch (error) {
-    console.error(`Chunk ${chunkIndex + 1} error:`, error);
-    return [];
+    console.error(`Chunk ${chunkIndex + 1} streaming error:`, error);
   }
 }
 
@@ -226,14 +311,9 @@ export async function GET(request: NextRequest) {
         // Send metadata first
         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'meta', totalChunks: chunks.length })}\n\n`));
 
-        // Process chunks sequentially and stream results
+        // Process chunks sequentially with streaming
         for (let i = 0; i < chunks.length; i++) {
-          const blocks = await processChunk(chunks[i], i, chunks.length, apiKey);
-
-          // Stream each block as it's processed
-          for (const block of blocks) {
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'block', block })}\n\n`));
-          }
+          await processChunkStreaming(chunks[i], i, chunks.length, apiKey, controller, encoder);
 
           // Send chunk completion event
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'chunk_complete', index: i + 1, total: chunks.length })}\n\n`));

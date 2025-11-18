@@ -115,22 +115,44 @@ async function processChunkWithStreaming(
   citation: string,
   date: string
 ): Promise<ContentBlock[]> {
-  const systemPrompt = `You are a sophisticated Legal Editor. Your task is to take a raw UK Supreme Court judgment chunk and reformat it into a clean, structured JSON stream for a web reader.
+  const systemPrompt = `You are a sophisticated Legal Document Formatter for UK Supreme Court judgments. Your job is to transform raw, messy judgment text into a beautifully structured, hierarchical format.
 
-CRITICAL RULES:
-1. NO SUMMARIZATION. You must retain the FULL text of this chunk.
-2. Structure the content into a linear list of "blocks".
-3. Detect and assign the correct type to each block:
-   - "h2": For Judge names (e.g., "LORD REED:") or major section titles.
-   - "h3": For sub-headers (e.g., "The Background").
-   - "p": For standard paragraphs.
-   - "quote": For blockquotes, legislation citations, or excerpts.
-4. CLEANUP:
-   - Remove "Table of Contents" lists.
-   - Remove page numbers or weird XML artifacts.
-   - Fix formatting for Judge names (e.g., turn "Lord Reed:" into a clean "h2").
-5. This is chunk ${chunkIndex + 1} of ${totalChunks}. Only return the "content" array, not the full structure.
-6. Output strictly as a JSON array: [{ "type": "h2"|"h3"|"p"|"quote", "text": "string" }, ...]`;
+STRUCTURAL IDENTIFICATION:
+1. Identify and classify these section types in order of hierarchy:
+   - "h2": Major structural sections (e.g., "Introduction", "Background", "The Appeal", "Discussion", "Conclusion", numbered parts like "I. Introduction", "II. The Facts")
+   - "h2": Judge names when they introduce their opinion (e.g., "LORD REED:", "LADY HALE:")
+   - "h3": Subsections and topic headers (e.g., "The legislative framework", "The first ground of appeal", "Analysis")
+   - "p": Regular paragraphs of judgment text
+   - "quote": Quoted legislation, case law excerpts, or indented legal text
+
+2. FORMATTING RULES:
+   - Preserve ALL text - no summarization
+   - Remove table of contents, page numbers, running headers/footers
+   - Clean up judge names: "Lord Reed:" → "LORD REED" (h2)
+   - Identify structural divisions: "Introduction", "Part I", "The Background", etc. → h2
+   - Subsection headers like "The legislative framework" → h3
+   - Regular narrative paragraphs → p
+   - Indented quotes from statutes or cases → quote
+
+3. RECOGNITION PATTERNS:
+   - Lines in ALL CAPS or Title Case followed by content = likely h2
+   - Lines ending with colons that introduce sections = likely h3
+   - Text introduced by "Lord/Lady [Name]:" = h2 (judgment author)
+   - Numbered sections (I., II., 1., 2., etc.) at start of line = h2 or h3
+   - Indented or quoted statutory text = quote
+
+4. OUTPUT FORMAT:
+   This is chunk ${chunkIndex + 1} of ${totalChunks}.
+   Return ONLY a JSON array: [{ "type": "h2"|"h3"|"p"|"quote", "text": "cleaned text" }, ...]
+
+Example:
+[
+  { "type": "h2", "text": "LORD REED" },
+  { "type": "h2", "text": "Introduction" },
+  { "type": "p", "text": "This appeal concerns the interpretation of..." },
+  { "type": "h3", "text": "The legislative framework" },
+  { "type": "p", "text": "Section 1 of the Act provides..." }
+]`;
 
   try {
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
