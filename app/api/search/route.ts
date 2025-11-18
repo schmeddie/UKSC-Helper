@@ -64,12 +64,28 @@ export async function GET(request: NextRequest) {
 
     console.log('Total entries in feed:', entriesArray.length);
 
+    // Debug: Log first entry structure
+    if (entriesArray.length > 0) {
+      console.log('First entry structure:', JSON.stringify(entriesArray[0], null, 2).substring(0, 500));
+    }
+
     // Convert Atom entries to our format
     let results = entriesArray
       .map((entry: any) => {
         // Extract URI from link (e.g., https://caselaw.nationalarchives.gov.uk/id/uksc/2024/1)
-        const link = entry.link?.['@_href'] || entry.link || '';
-        const uriMatch = link.match(/\/id\/(.+)/);
+        // Link can be an object with @_href attribute, or an array of link objects
+        let linkHref = '';
+        if (typeof entry.link === 'string') {
+          linkHref = entry.link;
+        } else if (entry.link?.['@_href']) {
+          linkHref = entry.link['@_href'];
+        } else if (Array.isArray(entry.link)) {
+          // Find the link with type="text/html" or the first one
+          const htmlLink = entry.link.find((l: any) => l['@_type'] === 'text/html' || l['@_rel'] === 'alternate');
+          linkHref = htmlLink?.['@_href'] || entry.link[0]?.['@_href'] || '';
+        }
+
+        const uriMatch = linkHref.match(/\/id\/(.+)/);
         const uri = uriMatch ? uriMatch[1] : '';
 
         // Extract court from URI (e.g., uksc from uksc/2024/1)
