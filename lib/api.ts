@@ -99,6 +99,7 @@ export interface JudgmentMetadata {
 export async function searchJudgments(
   params: SearchParams = {}
 ): Promise<{ results: JudgmentMetadata[]; total: number }> {
+  // Use our server-side proxy to bypass CORS
   const searchParams = new URLSearchParams();
 
   if (params.court) searchParams.set('court', params.court);
@@ -108,32 +109,29 @@ export async function searchJudgments(
   if (params.from) searchParams.set('from', params.from);
   if (params.to) searchParams.set('to', params.to);
 
-  const url = `${API_BASE_URL}/structured_search?${searchParams.toString()}`;
+  const url = `/api/search?${searchParams.toString()}`;
 
-  const response = await fetch(url, {
-    headers: {
-      Accept: 'application/json',
-    },
-  });
+  console.log('Fetching search from:', url);
 
-  if (!response.ok) {
-    throw new Error(`Search failed: ${response.statusText}`);
+  try {
+    const response = await fetch(url);
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error('Search API error:', data);
+      throw new Error(data.error || `Search failed: ${response.statusText}`);
+    }
+
+    console.log('Search results:', data.results?.length || 0, 'cases found');
+
+    return {
+      results: data.results || [],
+      total: data.total || 0,
+    };
+  } catch (error) {
+    console.error('Error in searchJudgments:', error);
+    throw error;
   }
-
-  const data = await response.json();
-
-  const results = (data.results || []).map((item: any) => ({
-    uri: item.uri || '',
-    name: item.name || 'Untitled',
-    cite: item.neutral_citation || '',
-    date: item.date || '',
-    court: item.court || '',
-  }));
-
-  return {
-    results,
-    total: data.total || 0,
-  };
 }
 
 /**

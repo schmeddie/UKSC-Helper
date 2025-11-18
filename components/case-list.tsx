@@ -15,10 +15,12 @@ interface CaseListProps {
 export function CaseList({ onSelectCase, selectedUri }: CaseListProps) {
   const [searchQuery, setSearchQuery] = useState('');
 
-  const { data: cases, isLoading } = useQuery({
+  const { data: cases, isLoading, error } = useQuery({
     queryKey: ['uksc-judgments'],
     queryFn: () => getRecentUKSCJudgments(50),
   });
+
+  console.log('CaseList state:', { isLoading, hasData: !!cases, caseCount: cases?.length, error });
 
   const filteredCases = cases?.filter((c) => {
     if (!searchQuery) return true;
@@ -58,13 +60,27 @@ export function CaseList({ onSelectCase, selectedUri }: CaseListProps) {
             </div>
           )}
 
-          {!isLoading && filteredCases?.length === 0 && (
+          {error && (
+            <div className="p-4 text-center">
+              <div className="text-sm text-red-600 mb-2 font-medium">
+                Failed to load cases
+              </div>
+              <div className="text-xs text-slate-600 mb-2">
+                {error instanceof Error ? error.message : 'Unknown error'}
+              </div>
+              <div className="text-xs text-slate-400">
+                Check the browser console for details
+              </div>
+            </div>
+          )}
+
+          {!isLoading && !error && filteredCases?.length === 0 && (
             <div className="p-4 text-center text-sm text-slate-500">
               No cases found
             </div>
           )}
 
-          {filteredCases?.map((case_) => (
+          {!error && filteredCases?.map((case_) => (
             <CaseItem
               key={case_.uri}
               case_={case_}
