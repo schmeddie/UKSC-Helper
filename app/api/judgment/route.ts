@@ -215,49 +215,86 @@ export async function GET(request: NextRequest) {
 
       if (body) {
         const paragraphs: string[] = [];
+        const seen = new Set<string>(); // Track seen text to avoid duplicates
 
-        // Recursive function to extract text from all <p> tags
-        function extractParagraphs(node: any): void {
-          if (!node) return;
+        // Helper function to decode HTML entities
+        function decodeHtmlEntities(text: string): string {
+          return text
+            .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(dec))
+            .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+            .replace(/&quot;/g, '"')
+            .replace(/&apos;/g, "'")
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&amp;/g, '&');
+        }
 
+        // Helper function to extract all text from a node (concatenating children)
+        function extractText(node: any): string {
           if (typeof node === 'string') {
-            const trimmed = node.trim();
-            if (trimmed) paragraphs.push(trimmed);
-            return;
+            return node;
           }
 
           if (typeof node === 'object') {
-            // If this is a <p> tag with text content
-            if (node['#text']) {
-              // Handle #text as string, object, or array
-              if (typeof node['#text'] === 'string') {
-                const trimmed = node['#text'].trim();
-                if (trimmed) paragraphs.push(trimmed);
-              } else if (typeof node['#text'] === 'object') {
-                // #text might be an object with nested content, stringify it
-                const text = JSON.stringify(node['#text']);
-                const trimmed = text.trim();
-                if (trimmed && trimmed !== '{}' && trimmed !== '[]') {
-                  paragraphs.push(trimmed);
-                }
-              }
+            let text = '';
+
+            // Get direct text content
+            if (node['#text'] && typeof node['#text'] === 'string') {
+              text += node['#text'];
             }
 
-            // Recursively process child nodes
+            // Process child nodes (like <em>, <strong>, etc.)
             Object.keys(node).forEach((key) => {
-              if (key !== '@_' && !key.startsWith('@_')) {
+              if (key !== '#text' && key !== '@_' && !key.startsWith('@_')) {
                 const value = node[key];
                 if (Array.isArray(value)) {
-                  value.forEach(extractParagraphs);
+                  value.forEach((item) => {
+                    text += ' ' + extractText(item);
+                  });
                 } else {
-                  extractParagraphs(value);
+                  text += ' ' + extractText(value);
                 }
               }
             });
+
+            return text;
           }
+
+          return '';
         }
 
-        extractParagraphs(body);
+        // Recursive function to find <p> tags only
+        function findParagraphs(node: any, depth: number = 0): void {
+          if (!node || typeof node !== 'object') return;
+
+          // Check if this node represents a <p> tag
+          if (node.p) {
+            const pNodes = Array.isArray(node.p) ? node.p : [node.p];
+
+            pNodes.forEach((pNode: any) => {
+              const text = extractText(pNode).trim();
+              if (text && !seen.has(text)) {
+                const decoded = decodeHtmlEntities(text);
+                paragraphs.push(decoded);
+                seen.add(text);
+              }
+            });
+          }
+
+          // Recursively search other child nodes for nested <p> tags
+          Object.keys(node).forEach((key) => {
+            if (key !== 'p' && key !== '@_' && !key.startsWith('@_')) {
+              const value = node[key];
+              if (Array.isArray(value)) {
+                value.forEach((item) => findParagraphs(item, depth + 1));
+              } else if (typeof value === 'object') {
+                findParagraphs(value, depth + 1);
+              }
+            }
+          });
+        }
+
+        findParagraphs(body);
         content = paragraphs.join('\n\n');
         console.log('Extracted content length:', content.length, 'characters');
         console.log('Number of paragraphs:', paragraphs.length);
