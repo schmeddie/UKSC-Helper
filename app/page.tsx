@@ -25,23 +25,23 @@ export default function Home() {
   };
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      {/* Left Sidebar - Case List */}
-      <div className="w-80 flex-shrink-0">
+    <div className="flex h-screen w-full bg-slate-50 overflow-hidden">
+      {/* Left Sidebar */}
+      <aside className="w-80 border-r border-slate-200 bg-white flex-shrink-0 overflow-hidden">
         <CaseList onSelectCase={setSelectedUri} selectedUri={selectedUri} />
-      </div>
+      </aside>
 
-      {/* Main Content - Judgment Reader */}
-      <div className="flex-1 overflow-hidden">
+      {/* Main Content Area */}
+      <main className="flex-1 overflow-y-auto bg-slate-50">
         {selectedUri ? (
           <JudgmentReader uri={selectedUri} onCitationClick={handleCitationClick} />
         ) : (
-          <div className="flex items-center justify-center h-full bg-slate-50">
-            <div className="text-center max-w-md px-4">
-              <h1 className="text-3xl font-serif font-bold text-slate-900 mb-4">
+          <div className="flex items-center justify-center min-h-full p-8">
+            <div className="text-center max-w-2xl">
+              <h1 className="text-4xl font-bold text-slate-900 mb-4">
                 UK Supreme Court Judgment Explorer
               </h1>
-              <p className="text-slate-600 mb-2">
+              <p className="text-lg text-slate-600 mb-2">
                 Select a case from the sidebar to begin reading.
               </p>
               <p className="text-sm text-slate-500">
@@ -51,7 +51,7 @@ export default function Home() {
             </div>
           </div>
         )}
-      </div>
+      </main>
     </div>
   );
 }

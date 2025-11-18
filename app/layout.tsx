@@ -13,8 +13,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body className="antialiased font-sans">
+    <html lang="en" className="h-full">
+      <body className="h-full antialiased font-sans m-0 p-0 overflow-hidden">
         <QueryProvider>
           {children}
         </QueryProvider>

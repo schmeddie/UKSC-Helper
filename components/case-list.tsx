@@ -32,9 +32,9 @@ export function CaseList({ onSelectCase, selectedUri }: CaseListProps) {
   });
 
   return (
-    <div className="flex flex-col h-full bg-white border-r border-slate-200">
+    <div className="flex flex-col h-full bg-white">
       {/* Header */}
-      <div className="p-4 border-b border-slate-200">
+      <div className="p-4 border-b border-slate-200 flex-shrink-0">
         <h2 className="text-lg font-semibold text-slate-900 mb-3">
           UK Supreme Court
         </h2>
