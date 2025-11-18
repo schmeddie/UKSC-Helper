@@ -1,10 +1,10 @@
 /**
  * National Archives Find Case Law API Client
- * Uses the XML endpoint to fetch Akoma Ntoso formatted judgments
- * Base URL: https://caselaw.nationalarchives.gov.uk/xml
+ * Uses the /id/ endpoint to fetch Akoma Ntoso XML formatted judgments
+ * Base URL: https://caselaw.nationalarchives.gov.uk/id
  */
 
-const XML_BASE_URL = 'https://caselaw.nationalarchives.gov.uk/xml';
+const XML_BASE_URL = 'https://caselaw.nationalarchives.gov.uk/id';
 const API_BASE_URL = 'https://caselaw.nationalarchives.gov.uk';
 
 export interface Judgment {
@@ -91,7 +91,7 @@ export function parseJudgmentXML(xmlString: string): Judgment {
 /**
  * Fetch judgment by court, year, and number
  * Example: fetchJudgment('uksc', '2019', '41')
- * Fetches from: https://caselaw.nationalarchives.gov.uk/xml/uksc/2019/41/data.xml
+ * Fetches from: https://caselaw.nationalarchives.gov.uk/id/uksc/2019/41/data.xml
  */
 export async function fetchJudgment(
   court: string,
