@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ratio | Reader</title>
+    
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        oxford: '#0f172a',
+                        paper: '#f9fafb',
+                        gold: '#d4af37',
+                        
+                        // Category Colors
+                        'cat-const': '#d4af37', // Constitutional (Gold)
+                        'cat-latin': '#8b5cf6', // Latin/Maxims (Purple)
+                        'cat-proc': '#3b82f6',  // Procedural (Blue)
+                        'cat-tort': '#ef4444',  // Tort (Red)
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        serif: ['Playfair Display', 'serif'],
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+        /* Tooltip Animation */
+        .tooltip-enter { animation: slideUp 0.15s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(8px) scale(0.95); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
+        /* Underline Styles per Category */
+        .term-const { border-bottom: 2px solid rgba(212, 175, 55, 0.4); background: rgba(212, 175, 55, 0.05); }
+        .term-const:hover { background: rgba(212, 175, 55, 0.2); border-color: rgba(212, 175, 55, 1); }
+
+        .term-latin { border-bottom: 2px solid rgba(139, 92, 246, 0.4); background: rgba(139, 92, 246, 0.05); }
+        .term-latin:hover { background: rgba(139, 92, 246, 0.2); border-color: rgba(139, 92, 246, 1); }
+
+        .term-proc { border-bottom: 2px solid rgba(59, 130, 246, 0.4); background: rgba(59, 130, 246, 0.05); }
+        .term-proc:hover { background: rgba(59, 130, 246, 0.2); border-color: rgba(59, 130, 246, 1); }
+
+        .term-tort { border-bottom: 2px solid rgba(239, 68, 68, 0.4); background: rgba(239, 68, 68, 0.05); }
+        .term-tort:hover { background: rgba(239, 68, 68, 0.2); border-color: rgba(239, 68, 68, 1); }
+        
+        .legal-term { cursor: pointer; transition: all 0.15s ease; padding-bottom: 1px; border-radius: 2px; }
+    </style>
+</head>
+<body class="bg-paper text-slate-800 h-screen flex overflow-hidden">
+
+    <!-- LEFT SIDEBAR -->
+    <aside class="w-80 bg-white border-r border-slate-200 flex flex-col shrink-0 z-20">
+        <!-- App Header -->
+        <div class="h-16 flex items-center px-6 border-b border-slate-100 shrink-0 bg-white">
+            <i data-lucide="scale" class="h-6 w-6 text-oxford mr-2"></i>
+            <span class="font-serif text-xl font-bold text-oxford tracking-tight">Ratio.</span>
+        </div>
+
+        <!-- Search & Filter -->
+        <div class="p-4 border-b border-slate-100 bg-slate-50/50">
+            <div class="relative">
+                <i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400"></i>
+                <input type="text" id="case-search" placeholder="Search cases, years..." 
+                    class="w-full pl-9 pr-4 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-oxford focus:border-oxford transition-all placeholder:text-slate-400">
+            </div>
+            <div class="flex gap-2 mt-3 overflow-x-auto pb-1 no-scrollbar">
+                <button class="text-[10px] font-medium px-2.5 py-1 rounded-full bg-oxford text-white whitespace-nowrap">All</button>
+                <button class="text-[10px] font-medium px-2.5 py-1 rounded-full bg-white border border-slate-200 text-slate-600 hover:border-slate-300 whitespace-nowrap">Public Law</button>
+                <button class="text-[10px] font-medium px-2.5 py-1 rounded-full bg-white border border-slate-200 text-slate-600 hover:border-slate-300 whitespace-nowrap">Tort</button>
+                <button class="text-[10px] font-medium px-2.5 py-1 rounded-full bg-white border border-slate-200 text-slate-600 hover:border-slate-300 whitespace-nowrap">Criminal</button>
+            </div>
+        </div>
+
+        <!-- Case List -->
+        <div id="case-list" class="flex-1 overflow-y-auto divide-y divide-slate-50">
+            <!-- List items injected via JS -->
+        </div>
+
+        <!-- User Profile (Bottom) -->
+        <div class="p-4 border-t border-slate-200 bg-slate-50 flex items-center gap-3 shrink-0 cursor-pointer hover:bg-slate-100 transition-colors">
+            <div class="h-8 w-8 rounded-full bg-oxford text-white flex items-center justify-center text-xs font-bold">JD</div>
+            <div class="flex-1 min-w-0">
+                <p class="text-sm font-medium text-slate-900 truncate">Jane Doe</p>
+                <p class="text-xs text-slate-500 truncate">Lincoln's Inn</p>
+            </div>
+            <i data-lucide="settings" class="h-4 w-4 text-slate-400"></i>
+        </div>
+    </aside>
+
+    <!-- MAIN CONTENT AREA -->
+    <main class="flex-1 flex flex-col min-w-0 bg-paper relative">
+        
+        <!-- Document Toolbar -->
+        <header class="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 shrink-0 shadow-sm z-10">
+            <div class="flex items-center gap-4 min-w-0">
+                <div class="hidden md:flex h-8 w-8 items-center justify-center rounded bg-slate-100 text-slate-500">
+                    <i data-lucide="file-text" class="h-4 w-4"></i>
+                </div>
+                <div class="min-w-0">
+                    <h2 id="active-title" class="text-sm font-bold text-slate-800 truncate max-w-md">Select a case to begin reading</h2>
+                    <p id="active-citation" class="text-xs text-slate-500 font-mono">--</p>
+                </div>
+            </div>
+            
+            <div class="flex items-center gap-3 border-l border-slate-200 pl-4 ml-4">
+                <div class="flex items-center gap-2 text-xs mr-2">
+                    <div class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-cat-const"></span>Const</div>
+                    <div class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-cat-latin"></span>Latin</div>
+                    <div class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-cat-proc"></span>Proc</div>
+                </div>
+                <button class="p-2 text-slate-400 hover:text-oxford transition-colors" title="Decrease Text Size"><i data-lucide="minus" class="h-4 w-4"></i></button>
+                <button class="p-2 text-slate-400 hover:text-oxford transition-colors" title="Increase Text Size"><i data-lucide="plus" class="h-4 w-4"></i></button>
+                <button class="bg-oxford hover:bg-slate-800 text-white px-4 py-1.5 rounded text-xs font-medium flex items-center gap-2 transition-colors ml-2">
+                    <i data-lucide="sparkles" class="h-3 w-3"></i> Summarize
+                </button>
+            </div>
+        </header>
+
+        <!-- Reading Pane -->
+        <div id="reading-pane" class="flex-1 overflow-y-auto relative">
+            <div class="max-w-3xl mx-auto py-12 px-8 lg:px-12">
+                <!-- Content injected here -->
+                <div id="doc-content" class="font-serif text-lg leading-loose text-slate-800">
+                    <!-- Placeholder State -->
+                    <div class="flex flex-col items-center justify-center h-96 text-slate-400">
+                        <i data-lucide="book-open" class="h-12 w-12 mb-4 opacity-20"></i>
+                        <p>Select a judgment from the sidebar to load.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Floating Tooltip -->
+        <div id="tooltip" class="absolute z-50 hidden max-w-xs bg-oxford text-white p-3 rounded-lg shadow-xl text-sm pointer-events-none tooltip-enter">
+            <div class="flex justify-between items-start mb-1 pb-1 border-b border-white/10">
+                <span id="tt-term" class="font-serif font-bold text-gold text-base"></span>
+                <span id="tt-cat" class="text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded bg-white/20"></span>
+            </div>
+            <p id="tt-def" class="text-slate-300 text-xs leading-relaxed mt-1"></p>
+        </div>
+
+    </main>
+
+    <script>
+        lucide.createIcons();
+
+        // --- DATA CONFIG --- //
+        
+        // 1. Dictionary with Categories
+        const legalDictionary = {
+            "prerogative": { def: "An exclusive right or privilege held by a person or group, especially a hereditary or official right.", cat: "const" },
+            "justiciable": { def: "Capable of being decided by a court; subject to the jurisdiction of a court of law.", cat: "proc" },
+            "void": { def: "Having no legal force or binding effect; null.", cat: "proc" },
+            "ultra vires": { def: "Beyond the powers. Acting outside the scope of authority granted by law.", cat: "latin" },
+            "ratio decidendi": { def: "The reason for the decision. The legal principle upon which the decision is based.", cat: "latin" },
+            "obiter dicta": { def: "Things said by the way. Remarks by a judge that are not essential to the decision.", cat: "latin" },
+            "tort": { def: "A civil wrong that causes a claimant to suffer loss or harm.", cat: "tort" },
+            "duty of care": { def: "A legal obligation which is imposed on an individual requiring adherence to a standard of reasonable care.", cat: "tort" },
+            "negligence": { def: "Failure to take proper care in doing something.", cat: "tort" },
+            "sovereignty": { def: "The supreme power or authority; the authority of a state to govern itself.", cat: "const" },
+            "Parliament": { def: "The supreme legislative body of the United Kingdom.", cat: "const" }
+        };
+
+        // 2. Cases Data
+        const cases = [
+            {
+                id: 1,
+                title: "R (Miller) v The Prime Minister",
+                citation: "[2019] UKSC 41",
+                date: "24 Sep 2019",
+                snippet: "Constitutional law - Prerogative power - Prorogation of Parliament...",
+                content: `
+                    <h3 class="font-bold text-xl mb-6">Lady Hale (President of the Supreme Court):</h3>
+                    <p class="mb-6"><span class="text-slate-400 text-xs font-sans mr-2">34</span>The question arises: by what standard is the lawfulness of the Prime Minister's advice to be judged? In the present case, the argument has been directed to the existence and extent of the power, rather than to its exercise.</p>
+                    <p class="mb-6"><span class="text-slate-400 text-xs font-sans mr-2">35</span>The issue is whether the advice to His Majesty to prorogue Parliament was lawful. The power to prorogue is a prerogative power and, like other prerogative powers, it is not unlimited. The limits of prerogative powers are determined by the courts. This is because the courts have the responsibility of upholding the values of the constitution and ensuring that the executive does not abuse its power.</p>
+                    <p class="mb-6"><span class="text-slate-400 text-xs font-sans mr-2">36</span>Two fundamental principles of our constitution are relevant here. The first is the sovereignty of Parliament: that Parliament can make laws which everyone must obey: this would be undermined if the executive could prevent Parliament from exercising its legislative authority by proroguing it for a long period.</p>
+                    <p class="mb-6"><span class="text-slate-400 text-xs font-sans mr-2">41</span>For the reasons given, we conclude that the decision to advise His Majesty to prorogue Parliament was unlawful. In these circumstances, the prorogation was void and of no effect.</p>
+                `
+            },
+            {
+                id: 2,
+                title: "Donoghue v Stevenson",
+                citation: "[1932] UKHL 100",
+                date: "26 May 1932",
+                snippet: "Tort - Negligence - Duty of Care - The 'Snail in the Bottle' case...",
+                content: `
+                    <h3 class="font-bold text-xl mb-6">Lord Atkin:</h3>
+                    <p class="mb-6"><span class="text-slate-400 text-xs font-sans mr-2">44</span>The liability for negligence, whether you style it such or treat it as in other systems as a species of culpa, is no doubt based upon a general public sentiment of moral wrongdoing for which the offender must pay. But acts or omissions which any moral code would censure cannot in a practical world be treated so as to give a right to every person injured by them to demand relief.</p>
+                    <p class="mb-6"><span class="text-slate-400 text-xs font-sans mr-2">45</span>The rule that you are to love your neighbour becomes in law, you must not injure your neighbour; and the lawyer's question, Who is my neighbour? receives a restricted reply. You must take reasonable care to avoid acts or omissions which you can reasonably foresee would be likely to injure your neighbour.</p>
+                    <p class="mb-6"><span class="text-slate-400 text-xs font-sans mr-2">46</span>Who, then, in law is my neighbour? The answer seems to be - persons who are so closely and directly affected by my act that I ought reasonably to have them in contemplation as being so affected when I am directing my mind to the acts or omissions which are called in question. This is the foundation of the modern duty of care in the law of tort.</p>
+                `
+            },
+            {
+                id: 3,
+                title: "R v Jogan",
+                citation: "[2022] UKSC 25",
+                date: "15 Jun 2022",
+                snippet: "Criminal law - Sentencing - Confiscation orders - Benefit from criminal conduct...",
+                content: `
+                    <h3 class="font-bold text-xl mb-6">Lord Burrows:</h3>
+                    <p class="mb-6"><span class="text-slate-400 text-xs font-sans mr-2">12</span>The central issue in this appeal is whether a confiscation order made under the Proceeds of Crime Act 2002 was ultra vires because the judge failed to properly calculate the benefit obtained from the criminal conduct.</p>
+                    <p class="mb-6"><span class="text-slate-400 text-xs font-sans mr-2">14</span>It is a fundamental principle of statutory interpretation that penal statutes should be construed strictly. If the text is ambiguous, the benefit of the doubt should be given to the defendant.</p>
+                    <p class="mb-6"><span class="text-slate-400 text-xs font-sans mr-2">15</span>However, the ratio decidendi of previous authorities suggests that a broad approach is taken to 'benefit' in the context of lifestyle criminals. Remarks to the contrary in <i>R v Smith</i> were merely obiter dicta and are not binding on this court.</p>
+                `
+            }
+        ];
+
+        // --- LOGIC --- //
+
+        const caseListEl = document.getElementById('case-list');
+        const searchInput = document.getElementById('case-search');
+        const docContentEl = document.getElementById('doc-content');
+        const activeTitleEl = document.getElementById('active-title');
+        const activeCitationEl = document.getElementById('active-citation');
+        const tooltip = document.getElementById('tooltip');
+        const ttTerm = document.getElementById('tt-term');
+        const ttDef = document.getElementById('tt-def');
+        const ttCat = document.getElementById('tt-cat');
+
+        // 1. Render Sidebar List
+        function renderSidebar(filter = "") {
+            caseListEl.innerHTML = "";
+            
+            const filteredCases = cases.filter(c => 
+                c.title.toLowerCase().includes(filter.toLowerCase()) || 
+                c.citation.toLowerCase().includes(filter.toLowerCase())
+            );
+
+            filteredCases.forEach(c => {
+                const div = document.createElement('div');
+                div.className = "p-4 cursor-pointer border-l-4 border-transparent hover:bg-slate-50 hover:border-slate-300 transition-all group";
+                div.onclick = () => loadCase(c.id, div);
+                div.innerHTML = `
+                    <div class="flex justify-between items-start mb-1">
+                        <h4 class="text-sm font-bold text-slate-700 group-hover:text-oxford">${c.title}</h4>
+                        <span class="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded group-hover:bg-white border border-transparent group-hover:border-slate-200">${c.date.split(' ').pop()}</span>
+                    </div>
+                    <p class="text-xs text-slate-500 font-mono mb-2">${c.citation}</p>
+                    <p class="text-xs text-slate-400 line-clamp-2">${c.snippet}</p>
+                `;
+                caseListEl.appendChild(div);
+            });
+        }
+
+        // 2. Load & Process Case
+        function loadCase(id, clickedElement) {
+            const c = cases.find(x => x.id === id);
+            if (!c) return;
+
+            // Update Active Sidebar State
+            Array.from(caseListEl.children).forEach(el => {
+                el.classList.remove('bg-slate-50', 'border-oxford');
+                el.classList.add('border-transparent');
+            });
+            if (clickedElement) {
+                clickedElement.classList.remove('border-transparent');
+                clickedElement.classList.add('bg-slate-50', 'border-oxford');
+            }
+
+            // Update Header
+            activeTitleEl.textContent = c.title;
+            activeCitationEl.textContent = c.citation;
+
+            // Process Text for Dictionary Terms
+            let processedHtml = c.content;
+            
+            // Sort terms by length (desc) to avoid nested replacement issues (e.g. "law" inside "lawful")
+            const sortedTerms = Object.keys(legalDictionary).sort((a, b) => b.length - a.length);
+
+            sortedTerms.forEach(term => {
+                const entry = legalDictionary[term];
+                const regex = new RegExp(`\\b(${term})\\b`, 'gi');
+                const categoryClass = `term-${entry.cat}`; // e.g., term-const
+                
+                processedHtml = processedHtml.replace(regex, 
+                    `<span class="legal-term ${categoryClass}" data-term="$1" data-cat="${entry.cat}">$1</span>`
+                );
+            });
+
+            docContentEl.innerHTML = processedHtml;
+        }
+
+        // 3. Tooltip Logic
+        const mainArea = document.querySelector('main');
+        
+        mainArea.addEventListener('mouseover', (e) => {
+            if (e.target.classList.contains('legal-term')) {
+                const term = e.target.getAttribute('data-term').toLowerCase(); // Normalized lookup
+                // Find dictionary entry case-insensitively
+                const dictKey = Object.keys(legalDictionary).find(k => k.toLowerCase() === term);
+                
+                if (dictKey) {
+                    const data = legalDictionary[dictKey];
+                    
+                    ttTerm.textContent = dictKey; // Use dictionary casing
+                    ttDef.textContent = data.def;
+                    ttCat.textContent = getCategoryLabel(data.cat);
+                    
+                    // Set Category Tag Color
+                    ttCat.className = `text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded text-white bg-cat-${data.cat}`;
+
+                    // Position
+                    const rect = e.target.getBoundingClientRect();
+                    const containerRect = mainArea.getBoundingClientRect();
+
+                    // Simple positioning logic (centered above word)
+                    let top = rect.top - containerRect.top - 10; // 10px above
+                    let left = rect.left - containerRect.left + (rect.width / 2);
+
+                    tooltip.style.top = `${top}px`;
+                    tooltip.style.left = `${left}px`;
+                    tooltip.style.transform = 'translateX(-50%) translateY(-100%)'; // Shift up and center
+                    
+                    tooltip.classList.remove('hidden');
+                }
+            }
+        });
+
+        mainArea.addEventListener('mouseout', (e) => {
+            if (e.target.classList.contains('legal-term')) {
+                tooltip.classList.add('hidden');
+            }
+        });
+
+        // Helper: Map category codes to display names
+        function getCategoryLabel(cat) {
+            const map = {
+                'const': 'Constitutional',
+                'proc': 'Procedural',
+                'latin': 'Latin / Maxim',
+                'tort': 'Tort Law'
+            };
+            return map[cat] || 'Legal Term';
+        }
+
+        // 4. Search Listener
+        searchInput.addEventListener('input', (e) => renderSidebar(e.target.value));
+
+        // Init
+        renderSidebar();
+        // Load first case by default for demo
+        setTimeout(() => {
+            if(caseListEl.firstElementChild) caseListEl.firstElementChild.click();
+        }, 100);
+
+    </script>
+</body>
+</html>
