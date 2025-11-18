@@ -9,7 +9,7 @@ interface CaseDetailsSidebarProps {
     cite: string;
     court: string;
     date: string;
-    justices?: string[];
+    judges?: string[];
     citations?: string[];
   } | null;
 }
@@ -65,20 +65,20 @@ export function CaseDetailsSidebar({ judgment }: CaseDetailsSidebarProps) {
           </div>
         </div>
 
-        {/* Justices */}
-        {judgment.justices && judgment.justices.length > 0 && (
+        {/* Judges */}
+        {judgment.judges && judgment.judges.length > 0 && (
           <div>
             <div className="flex items-center gap-2 mb-3">
               <Users className="h-4 w-4 text-oxford" />
-              <h3 className="text-sm font-bold text-oxford">Justices</h3>
+              <h3 className="text-sm font-bold text-oxford">Judges</h3>
             </div>
             <div className="space-y-2">
-              {judgment.justices.map((justice, idx) => (
+              {judgment.judges.map((judge, idx) => (
                 <div
                   key={idx}
                   className="text-xs text-slate-700 p-2 rounded bg-slate-50 border border-slate-100"
                 >
-                  {justice}
+                  {judge}
                 </div>
               ))}
             </div>

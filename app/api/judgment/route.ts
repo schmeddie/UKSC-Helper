@@ -9,6 +9,7 @@ interface JudgmentResponse {
   year: string;
   number: string;
   cite: string;
+  judges?: string[];
   debug?: DebugInfo;
 }
 
@@ -208,6 +209,38 @@ export async function GET(request: NextRequest) {
       console.error('Error extracting date:', e);
     }
 
+    // Extract judges from metadata
+    let judges: string[] = [];
+    try {
+      const references = xmlDoc?.akomaNtoso?.judgment?.meta?.references;
+
+      if (references) {
+        // Look for TLCPerson tags
+        const tlcPersons = references.TLCPerson;
+
+        if (tlcPersons) {
+          const persons = Array.isArray(tlcPersons) ? tlcPersons : [tlcPersons];
+
+          // Extract all persons with showAs attribute (these are typically judges)
+          judges = persons
+            .filter((person: any) => person['@_showAs'])
+            .map((person: any) => person['@_showAs'])
+            .filter((name: string) => {
+              // Filter out non-judge roles (common parties)
+              const lowerName = name.toLowerCase();
+              return !lowerName.includes('appellant') &&
+                     !lowerName.includes('respondent') &&
+                     !lowerName.includes('claimant') &&
+                     !lowerName.includes('defendant');
+            });
+
+          console.log('Extracted judges from metadata:', judges);
+        }
+      }
+    } catch (e) {
+      console.error('Error extracting judges from metadata:', e);
+    }
+
     // Extract content from <p> tags in judgment body
     let content = '';
     try {
@@ -305,6 +338,33 @@ export async function GET(request: NextRequest) {
       console.error('Error extracting content:', e);
     }
 
+    // Fallback: Extract judges from body text if metadata didn't have them
+    if (judges.length === 0 && content) {
+      try {
+        // Look at the first 500 characters for "Before:" or "Justices:" pattern
+        const header = content.substring(0, 500);
+        const judgePattern = /(?:Before|Justices):\s*([\s\S]*?)(?=\n\n|Judgment|JUDGMENT)/i;
+        const match = header.match(judgePattern);
+
+        if (match && match[1]) {
+          // Split by common delimiters and clean up
+          const judgeText = match[1];
+          const judgeNames = judgeText
+            .split(/\n|,|and/)
+            .map((name) => name.trim())
+            .filter((name) => name.length > 0 && /^[A-Z]/.test(name))
+            .filter((name) => !name.toLowerCase().includes('judgment'));
+
+          if (judgeNames.length > 0) {
+            judges = judgeNames;
+            console.log('Extracted judges from body text (fallback):', judges);
+          }
+        }
+      } catch (e) {
+        console.error('Error in fallback judge extraction:', e);
+      }
+    }
+
     // Construct neutral citation
     const cite = `[${year}] ${court.toUpperCase()} ${number}`;
 
@@ -316,6 +376,7 @@ export async function GET(request: NextRequest) {
       year,
       number,
       cite,
+      judges: judges.length > 0 ? judges : undefined,
       debug: debugInfo as DebugInfo,
     };
 
