@@ -18,8 +18,12 @@ export async function GET(request: NextRequest) {
     const order = searchParams.get('order') || '-date';
 
     // Use the Atom feed which is documented and returns XML
-    // We'll filter by court on our side
-    const url = `https://caselaw.nationalarchives.gov.uk/atom.xml`;
+    // Try court-specific feed if court parameter is provided
+    let url = `https://caselaw.nationalarchives.gov.uk/atom.xml`;
+    if (court) {
+      // Try court-specific feed URL
+      url = `https://caselaw.nationalarchives.gov.uk/${court.toLowerCase()}/atom.xml`;
+    }
     console.log('Fetching Atom feed:', url);
 
     const response = await fetch(url, {
