@@ -9,6 +9,17 @@ module.exports = {
   theme: {
     extend: {
       colors: {
+        oxford: 'rgb(15 23 42)',
+        paper: 'rgb(249 250 251)',
+        gold: 'rgb(212 175 55)',
+
+        // Category Colors
+        'cat-const': 'rgb(212 175 55)',  // Constitutional (Gold)
+        'cat-latin': 'rgb(139 92 246)',  // Latin/Maxims (Purple)
+        'cat-proc': 'rgb(59 130 246)',   // Procedural (Blue)
+        'cat-tort': 'rgb(239 68 68)',    // Tort (Red)
+
+        // Keep shadcn defaults
         background: "hsl(var(--background))",
         foreground: "hsl(var(--foreground))",
         card: {
@@ -49,6 +60,10 @@ module.exports = {
           "4": "hsl(var(--chart-4))",
           "5": "hsl(var(--chart-5))",
         },
+      },
+      fontFamily: {
+        sans: ['Inter', 'system-ui', 'sans-serif'],
+        serif: ['Playfair Display', 'Georgia', 'serif'],
       },
       borderRadius: {
         lg: "var(--radius)",

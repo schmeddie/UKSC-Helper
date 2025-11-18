@@ -21,21 +21,62 @@ export function JudgmentReader({ uri, onCitationClick }: JudgmentReaderProps) {
     enabled: !!uri,
   });
 
+  if (!uri) {
+    return (
+      <>
+        {/* Toolbar - Empty State */}
+        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 shrink-0 shadow-sm z-10">
+          <div className="flex items-center gap-4 min-w-0">
+            <div className="hidden md:flex h-8 w-8 items-center justify-center rounded bg-slate-100 text-slate-400">
+              <BookOpen className="h-4 w-4" />
+            </div>
+            <div className="min-w-0">
+              <h2 className="text-sm font-bold text-slate-600 truncate max-w-md">Select a case to begin reading</h2>
+              <p className="text-xs text-slate-400 font-mono">--</p>
+            </div>
+          </div>
+        </header>
+
+        {/* Empty State */}
+        <div className="flex-1 overflow-y-auto relative">
+          <div className="max-w-3xl mx-auto py-12 px-8 lg:px-12">
+            <div className="flex flex-col items-center justify-center h-96 text-slate-400">
+              <BookOpen className="h-12 w-12 mb-4 opacity-20" />
+              <p>Select a judgment from the sidebar to load.</p>
+            </div>
+          </div>
+        </div>
+      </>
+    );
+  }
+
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <div className="text-center">
-          <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto mb-4" />
-          <p className="text-slate-600">Loading judgment...</p>
+      <>
+        <header className="h-16 bg-white border-b border-slate-200 flex items-center px-8 shrink-0 shadow-sm z-10">
+          <Loader2 className="w-4 h-4 animate-spin text-oxford mr-2" />
+          <span className="text-sm text-slate-600">Loading judgment...</span>
+        </header>
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <div className="w-8 h-8 border-2 border-oxford border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+            <p className="text-slate-600 text-sm">Loading judgment...</p>
+          </div>
         </div>
-      </div>
+      </>
     );
   }
 
   if (error) {
     return (
       <>
-        <div className="flex items-center justify-center h-full">
+        <header className="h-16 bg-white border-b border-slate-200 flex items-center px-8 shrink-0 shadow-sm z-10">
+          <div className="flex items-center gap-2">
+            <BookOpen className="h-4 w-4 text-red-500" />
+            <span className="text-sm font-bold text-red-600">Error loading judgment</span>
+          </div>
+        </header>
+        <div className="flex-1 flex items-center justify-center p-8">
           <div className="text-center max-w-md">
             <BookOpen className="w-12 h-12 text-red-400 mx-auto mb-4" />
             <h3 className="text-lg font-semibold text-slate-900 mb-2">
@@ -43,9 +84,6 @@ export function JudgmentReader({ uri, onCitationClick }: JudgmentReaderProps) {
             </h3>
             <p className="text-sm text-slate-600 mb-4">
               {error instanceof Error ? error.message : 'Unknown error occurred'}
-            </p>
-            <p className="text-xs text-slate-500">
-              Check the debug panel at the bottom of the page for more details.
             </p>
           </div>
         </div>
@@ -58,72 +96,49 @@ export function JudgmentReader({ uri, onCitationClick }: JudgmentReaderProps) {
   }
 
   if (!judgment) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <div className="text-center max-w-md">
-          <BookOpen className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-          <h3 className="text-lg font-semibold text-slate-900 mb-2">
-            Select a case to read
-          </h3>
-          <p className="text-sm text-slate-600">
-            Choose a judgment from the list to view its full text with
-            interactive definitions and AI-powered explanations.
-          </p>
-        </div>
-      </div>
-    );
+    return null;
   }
 
   return (
     <>
-      <div className="flex flex-col h-full bg-slate-50">
-        {/* Header */}
-        <div className="bg-white border-b border-slate-200 p-6">
-          <h1 className="text-2xl font-serif font-bold text-slate-900 mb-4">
-            {judgment.title}
-          </h1>
-
-          <div className="flex flex-wrap gap-4 text-sm text-slate-600">
-            {judgment.cite && (
-              <div className="flex items-center gap-2">
-                <Briefcase className="w-4 h-4" />
-                <span className="font-mono">{judgment.cite}</span>
-              </div>
-            )}
-
-            {judgment.date && (
-              <div className="flex items-center gap-2">
-                <Calendar className="w-4 h-4" />
-                <span>{formatDate(judgment.date)}</span>
-              </div>
-            )}
-
-            {judgment.court && (
-              <div className="flex items-center gap-2">
-                <span className="text-slate-400">•</span>
-                <span className="uppercase text-xs font-semibold">
-                  {judgment.court}
-                </span>
-              </div>
-            )}
+      {/* Document Toolbar */}
+      <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 shrink-0 shadow-sm z-10">
+        <div className="flex items-center gap-4 min-w-0">
+          <div className="hidden md:flex h-8 w-8 items-center justify-center rounded bg-slate-100 text-slate-500">
+            <Briefcase className="h-4 w-4" />
+          </div>
+          <div className="min-w-0">
+            <h2 className="text-sm font-bold text-slate-800 truncate max-w-md">{judgment.title}</h2>
+            <p className="text-xs text-slate-500 font-mono">{judgment.cite}</p>
           </div>
         </div>
 
-        {/* Content */}
-        <ScrollArea className="flex-1">
-          <div className="max-w-4xl mx-auto p-8">
+        <div className="flex items-center gap-2 text-xs text-slate-500">
+          {judgment.date && (
+            <>
+              <Calendar className="h-3 w-3" />
+              <span>{formatDate(judgment.date)}</span>
+            </>
+          )}
+        </div>
+      </header>
+
+      {/* Reading Pane */}
+      <div className="flex-1 overflow-y-auto relative">
+        <div className="max-w-3xl mx-auto py-12 px-8 lg:px-12">
+          <div className="font-serif text-lg leading-loose text-slate-800 judgment-text">
             <TextHighlighter
               content={judgment.content}
               onCitationClick={onCitationClick}
             />
           </div>
-        </ScrollArea>
-
-        {/* AI Explainer */}
-        <AIExplainer caseName={judgment.title} />
+        </div>
       </div>
 
-      {/* Debug Panel - shows when there's debug info */}
+      {/* AI Explainer */}
+      <AIExplainer caseName={judgment.title} />
+
+      {/* Debug Panel */}
       {judgment.debug && (
         <DebugPanel
           error={null}

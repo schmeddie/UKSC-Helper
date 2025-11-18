@@ -25,32 +25,15 @@ export default function Home() {
   };
 
   return (
-    <div className="flex h-screen w-full bg-slate-50 overflow-hidden">
+    <div className="flex h-screen w-full bg-paper overflow-hidden">
       {/* Left Sidebar */}
-      <aside className="w-80 border-r border-slate-200 bg-white flex-shrink-0 overflow-hidden">
+      <aside className="w-80 bg-white border-r border-slate-200 flex flex-col shrink-0 z-20">
         <CaseList onSelectCase={setSelectedUri} selectedUri={selectedUri} />
       </aside>
 
       {/* Main Content Area */}
-      <main className="flex-1 overflow-y-auto bg-slate-50">
-        {selectedUri ? (
-          <JudgmentReader uri={selectedUri} onCitationClick={handleCitationClick} />
-        ) : (
-          <div className="flex items-center justify-center min-h-full p-8">
-            <div className="text-center max-w-2xl">
-              <h1 className="text-4xl font-bold text-slate-900 mb-4">
-                UK Supreme Court Judgment Explorer
-              </h1>
-              <p className="text-lg text-slate-600 mb-2">
-                Select a case from the sidebar to begin reading.
-              </p>
-              <p className="text-sm text-slate-500">
-                Legal terms will be underlined for instant definitions.
-                Highlight any text to get an AI-powered explanation.
-              </p>
-            </div>
-          </div>
-        )}
+      <main className="flex-1 flex flex-col min-w-0 bg-paper relative">
+        <JudgmentReader uri={selectedUri} onCitationClick={handleCitationClick} />
       </main>
     </div>
   );
