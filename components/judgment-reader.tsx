@@ -4,7 +4,7 @@ import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Loader2, BookOpen, Calendar, Briefcase } from 'lucide-react';
-import { getJudgment } from '@/lib/api-client';
+import { fetchJudgmentByUri } from '@/lib/api';
 import { TextHighlighter } from './text-highlighter';
 import { AIExplainer } from './ai-explainer';
 
@@ -16,7 +16,7 @@ interface JudgmentReaderProps {
 export function JudgmentReader({ uri, onCitationClick }: JudgmentReaderProps) {
   const { data: judgment, isLoading, error } = useQuery({
     queryKey: ['judgment', uri],
-    queryFn: () => getJudgment(uri),
+    queryFn: () => fetchJudgmentByUri(uri),
     enabled: !!uri,
   });
 
@@ -69,29 +69,29 @@ export function JudgmentReader({ uri, onCitationClick }: JudgmentReaderProps) {
       {/* Header */}
       <div className="bg-white border-b border-slate-200 p-6">
         <h1 className="text-2xl font-serif font-bold text-slate-900 mb-4">
-          {judgment.metadata.name}
+          {judgment.title}
         </h1>
 
         <div className="flex flex-wrap gap-4 text-sm text-slate-600">
-          {judgment.metadata.cite && (
+          {judgment.cite && (
             <div className="flex items-center gap-2">
               <Briefcase className="w-4 h-4" />
-              <span className="font-mono">{judgment.metadata.cite}</span>
+              <span className="font-mono">{judgment.cite}</span>
             </div>
           )}
 
-          {judgment.metadata.date && (
+          {judgment.date && (
             <div className="flex items-center gap-2">
               <Calendar className="w-4 h-4" />
-              <span>{formatDate(judgment.metadata.date)}</span>
+              <span>{formatDate(judgment.date)}</span>
             </div>
           )}
 
-          {judgment.metadata.court && (
+          {judgment.court && (
             <div className="flex items-center gap-2">
               <span className="text-slate-400">•</span>
               <span className="uppercase text-xs font-semibold">
-                {judgment.metadata.court}
+                {judgment.court}
               </span>
             </div>
           )}
@@ -109,7 +109,7 @@ export function JudgmentReader({ uri, onCitationClick }: JudgmentReaderProps) {
       </ScrollArea>
 
       {/* AI Explainer */}
-      <AIExplainer caseName={judgment.metadata.name} />
+      <AIExplainer caseName={judgment.title} />
     </div>
   );
 }

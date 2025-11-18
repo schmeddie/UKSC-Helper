@@ -5,8 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Search, Calendar, Briefcase } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Input } from '@/components/ui/input';
-import { getRecentUKSCJudgments } from '@/lib/api-client';
-import { JudgmentMetadata } from '@/lib/types';
+import { getRecentUKSCJudgments, JudgmentMetadata } from '@/lib/api';
 
 interface CaseListProps {
   onSelectCase: (caseUri: string) => void;
