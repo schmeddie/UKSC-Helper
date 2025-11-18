@@ -146,12 +146,32 @@ RULES:
 
     if (!structuredText) {
       console.error('No content in OpenRouter response');
+      console.error('Full response:', JSON.stringify(data, null, 2));
       return null;
     }
 
-    const structured = JSON.parse(structuredText) as StructuredContent;
+    console.log('Raw LLM response length:', structuredText.length);
+    console.log('Response preview:', structuredText.substring(0, 200));
+
+    // Try to parse the JSON
+    let structured: StructuredContent;
+    try {
+      structured = JSON.parse(structuredText) as StructuredContent;
+    } catch (parseError) {
+      console.error('JSON parse error:', parseError);
+      console.error('Full response text:', structuredText);
+      return null;
+    }
+
+    // Validate the structure
+    if (!structured.content || !Array.isArray(structured.content)) {
+      console.error('Invalid structured content format');
+      console.error('Received:', JSON.stringify(structured, null, 2).substring(0, 500));
+      return null;
+    }
+
     console.log('✅ Successfully structured judgment');
-    console.log('Blocks created:', structured.content?.length || 0);
+    console.log('Blocks created:', structured.content.length);
 
     return structured;
   } catch (error) {
