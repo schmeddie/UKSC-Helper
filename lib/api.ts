@@ -6,6 +6,15 @@
 
 const API_BASE_URL = 'https://caselaw.nationalarchives.gov.uk';
 
+export interface DebugInfo {
+  attemptedUrl: string;
+  statusCode: number;
+  contentType: string | null;
+  rawPreview: string;
+  xmlStructure?: any;
+  timestamp: string;
+}
+
 export interface Judgment {
   title: string;
   date: string;
@@ -14,6 +23,7 @@ export interface Judgment {
   year: string;
   number: string;
   cite: string;
+  debug?: DebugInfo;
 }
 
 /**
@@ -33,12 +43,16 @@ export async function fetchJudgment(
   try {
     const response = await fetch(url);
 
+    const data = await response.json();
+
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-      throw new Error(errorData.error || `Failed to fetch judgment: ${response.statusText}`);
+      // Create an error object that includes debug info
+      const error: any = new Error(data.error || `Failed to fetch judgment: ${response.statusText}`);
+      error.debug = data.debug;
+      throw error;
     }
 
-    const judgment: Judgment = await response.json();
+    const judgment: Judgment = data;
     return judgment;
   } catch (error) {
     console.error('Error fetching judgment:', error);

@@ -7,6 +7,7 @@ import { Loader2, BookOpen, Calendar, Briefcase } from 'lucide-react';
 import { fetchJudgmentByUri } from '@/lib/api';
 import { TextHighlighter } from './text-highlighter';
 import { AIExplainer } from './ai-explainer';
+import { DebugPanel } from './DebugPanel';
 
 interface JudgmentReaderProps {
   uri: string;
@@ -33,17 +34,26 @@ export function JudgmentReader({ uri, onCitationClick }: JudgmentReaderProps) {
 
   if (error) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <div className="text-center max-w-md">
-          <BookOpen className="w-12 h-12 text-red-400 mx-auto mb-4" />
-          <h3 className="text-lg font-semibold text-slate-900 mb-2">
-            Failed to load judgment
-          </h3>
-          <p className="text-sm text-slate-600">
-            {error instanceof Error ? error.message : 'Unknown error occurred'}
-          </p>
+      <>
+        <div className="flex items-center justify-center h-full">
+          <div className="text-center max-w-md">
+            <BookOpen className="w-12 h-12 text-red-400 mx-auto mb-4" />
+            <h3 className="text-lg font-semibold text-slate-900 mb-2">
+              Failed to load judgment
+            </h3>
+            <p className="text-sm text-slate-600 mb-4">
+              {error instanceof Error ? error.message : 'Unknown error occurred'}
+            </p>
+            <p className="text-xs text-slate-500">
+              Check the debug panel at the bottom of the page for more details.
+            </p>
+          </div>
         </div>
-      </div>
+        <DebugPanel
+          error={error instanceof Error ? error.message : 'Unknown error occurred'}
+          debugInfo={(error as any)?.debug || null}
+        />
+      </>
     );
   }
 
@@ -65,52 +75,62 @@ export function JudgmentReader({ uri, onCitationClick }: JudgmentReaderProps) {
   }
 
   return (
-    <div className="flex flex-col h-full bg-slate-50">
-      {/* Header */}
-      <div className="bg-white border-b border-slate-200 p-6">
-        <h1 className="text-2xl font-serif font-bold text-slate-900 mb-4">
-          {judgment.title}
-        </h1>
+    <>
+      <div className="flex flex-col h-full bg-slate-50">
+        {/* Header */}
+        <div className="bg-white border-b border-slate-200 p-6">
+          <h1 className="text-2xl font-serif font-bold text-slate-900 mb-4">
+            {judgment.title}
+          </h1>
 
-        <div className="flex flex-wrap gap-4 text-sm text-slate-600">
-          {judgment.cite && (
-            <div className="flex items-center gap-2">
-              <Briefcase className="w-4 h-4" />
-              <span className="font-mono">{judgment.cite}</span>
-            </div>
-          )}
+          <div className="flex flex-wrap gap-4 text-sm text-slate-600">
+            {judgment.cite && (
+              <div className="flex items-center gap-2">
+                <Briefcase className="w-4 h-4" />
+                <span className="font-mono">{judgment.cite}</span>
+              </div>
+            )}
 
-          {judgment.date && (
-            <div className="flex items-center gap-2">
-              <Calendar className="w-4 h-4" />
-              <span>{formatDate(judgment.date)}</span>
-            </div>
-          )}
+            {judgment.date && (
+              <div className="flex items-center gap-2">
+                <Calendar className="w-4 h-4" />
+                <span>{formatDate(judgment.date)}</span>
+              </div>
+            )}
 
-          {judgment.court && (
-            <div className="flex items-center gap-2">
-              <span className="text-slate-400">•</span>
-              <span className="uppercase text-xs font-semibold">
-                {judgment.court}
-              </span>
-            </div>
-          )}
+            {judgment.court && (
+              <div className="flex items-center gap-2">
+                <span className="text-slate-400">•</span>
+                <span className="uppercase text-xs font-semibold">
+                  {judgment.court}
+                </span>
+              </div>
+            )}
+          </div>
         </div>
+
+        {/* Content */}
+        <ScrollArea className="flex-1">
+          <div className="max-w-4xl mx-auto p-8">
+            <TextHighlighter
+              content={judgment.content}
+              onCitationClick={onCitationClick}
+            />
+          </div>
+        </ScrollArea>
+
+        {/* AI Explainer */}
+        <AIExplainer caseName={judgment.title} />
       </div>
 
-      {/* Content */}
-      <ScrollArea className="flex-1">
-        <div className="max-w-4xl mx-auto p-8">
-          <TextHighlighter
-            content={judgment.content}
-            onCitationClick={onCitationClick}
-          />
-        </div>
-      </ScrollArea>
-
-      {/* AI Explainer */}
-      <AIExplainer caseName={judgment.title} />
-    </div>
+      {/* Debug Panel - shows when there's debug info */}
+      {judgment.debug && (
+        <DebugPanel
+          error={null}
+          debugInfo={judgment.debug}
+        />
+      )}
+    </>
   );
 }
 
