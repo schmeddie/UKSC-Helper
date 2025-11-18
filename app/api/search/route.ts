@@ -108,8 +108,18 @@ export async function GET(request: NextRequest) {
           linkHref = htmlLink?.['@_href'] || entry.link[0]?.['@_href'] || '';
         }
 
-        const uriMatch = linkHref.match(/\/id\/(.+)/);
-        const uri = uriMatch ? uriMatch[1] : '';
+        // Extract URI - handle both patterns:
+        // Generic feed: /id/uksc/2025/39
+        // Court-specific feed: /uksc/2025/39 (no /id/)
+        let uri = '';
+        const idMatch = linkHref.match(/\/id\/(.+)/);
+        if (idMatch) {
+          uri = idMatch[1];
+        } else {
+          // Try without /id/ prefix (court-specific feeds)
+          const directMatch = linkHref.match(/nationalarchives\.gov\.uk\/(.+)/);
+          uri = directMatch ? directMatch[1] : '';
+        }
 
         // Extract court from URI (e.g., uksc from uksc/2024/1)
         const courtMatch = uri.match(/^([^\/]+)\//);
