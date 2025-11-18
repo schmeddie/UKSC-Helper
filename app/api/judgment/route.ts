@@ -1,10 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { XMLParser } from 'fast-xml-parser';
 
+interface ContentBlock {
+  type: 'h2' | 'h3' | 'p' | 'quote';
+  text: string;
+}
+
+interface StructuredContent {
+  meta: {
+    case_name: string;
+    neutral_citation: string;
+    judgment_date: string;
+  };
+  content: ContentBlock[];
+}
+
 interface JudgmentResponse {
   title: string;
   date: string;
   content: string;
+  structured?: StructuredContent;
   court: string;
   year: string;
   number: string;
@@ -20,6 +35,129 @@ interface DebugInfo {
   rawPreview: string;
   xmlStructure?: any;
   timestamp: string;
+}
+
+/**
+ * Extract raw text from XML body (no structure, just plain text)
+ */
+function extractRawText(body: any): string {
+  const textParts: string[] = [];
+
+  function traverse(node: any): void {
+    if (!node || typeof node !== 'object') return;
+
+    // If this is a text node, add it
+    if (node['#text'] && typeof node['#text'] === 'string') {
+      const text = node['#text'].trim();
+      if (text) {
+        textParts.push(text);
+      }
+    }
+
+    // Recursively traverse all child nodes
+    Object.keys(node).forEach((key) => {
+      if (key !== '#text' && !key.startsWith('@_')) {
+        const value = node[key];
+        if (Array.isArray(value)) {
+          value.forEach((item) => traverse(item));
+        } else if (typeof value === 'object') {
+          traverse(value);
+        }
+      }
+    });
+  }
+
+  traverse(body);
+  return textParts.join(' ');
+}
+
+/**
+ * Call OpenRouter to structure the raw judgment text
+ */
+async function structureJudgmentWithLLM(
+  rawText: string,
+  caseName: string,
+  citation: string,
+  date: string
+): Promise<StructuredContent | null> {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+
+  if (!apiKey) {
+    console.warn('OPENROUTER_API_KEY not set, skipping LLM structuring');
+    return null;
+  }
+
+  const systemPrompt = `You are a sophisticated Legal Editor. Your task is to take a raw, messy UK Supreme Court judgment and reformat it into a clean, structured JSON stream for a web reader.
+
+RULES:
+1. NO SUMMARIZATION. You must retain the FULL text of the judgment.
+2. Structure the content into a linear list of "blocks".
+3. Detect and assign the correct type to each block:
+   - "h2": For Judge names (e.g., "LORD REED:") or major section titles.
+   - "h3": For sub-headers (e.g., "The Background").
+   - "p": For standard paragraphs.
+   - "quote": For blockquotes, legislation citations, or excerpts.
+4. CLEANUP:
+   - Remove "Table of Contents" lists from the start.
+   - Remove page numbers or weird XML artifacts.
+   - Fix formatting for Judge names (e.g., turn "Lord Reed:" into a clean "h2").
+5. Output strictly matching this JSON schema:
+   {
+     "meta": {
+       "case_name": "string",
+       "neutral_citation": "string",
+       "judgment_date": "string"
+     },
+     "content": [
+       { "type": "h2" | "h3" | "p" | "quote", "text": "string" }
+     ]
+   }`;
+
+  try {
+    console.log('Calling OpenRouter to structure judgment...');
+    console.log('Text length:', rawText.length, 'characters');
+
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://uksc-helper.vercel.app',
+        'X-Title': 'UKSC Judgment Reader',
+      },
+      body: JSON.stringify({
+        model: 'google/gemini-flash-1.5',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: `Structure this judgment:\n\n${rawText}` },
+        ],
+        response_format: { type: 'json_object' },
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('OpenRouter API error:', response.status, errorText);
+      return null;
+    }
+
+    const data = await response.json();
+    const structuredText = data.choices?.[0]?.message?.content;
+
+    if (!structuredText) {
+      console.error('No content in OpenRouter response');
+      return null;
+    }
+
+    const structured = JSON.parse(structuredText) as StructuredContent;
+    console.log('✅ Successfully structured judgment');
+    console.log('Blocks created:', structured.content?.length || 0);
+
+    return structured;
+  } catch (error) {
+    console.error('Error structuring judgment with LLM:', error);
+    return null;
+  }
 }
 
 /**
@@ -368,10 +506,26 @@ export async function GET(request: NextRequest) {
     // Construct neutral citation
     const cite = `[${year}] ${court.toUpperCase()} ${number}`;
 
+    // Extract raw text and structure with LLM
+    let structured: StructuredContent | null = null;
+    try {
+      const body = xmlDoc?.akomaNtoso?.judgment?.judgmentBody || xmlDoc?.akomaNtoso?.judgment?.mainBody;
+      if (body) {
+        const rawText = extractRawText(body);
+        console.log('Extracted raw text length:', rawText.length, 'characters');
+
+        // Call LLM to structure the content
+        structured = await structureJudgmentWithLLM(rawText, title, cite, date);
+      }
+    } catch (e) {
+      console.error('Error in LLM structuring:', e);
+    }
+
     const result: JudgmentResponse = {
       title,
       date,
       content: content || 'No content available',
+      structured: structured || undefined,
       court: court.toUpperCase(),
       year,
       number,
@@ -382,6 +536,7 @@ export async function GET(request: NextRequest) {
 
     console.log('=== SUCCESS ===');
     console.log('Returning judgment:', cite);
+    console.log('Structured blocks:', structured?.content?.length || 0);
     console.log('================\n');
 
     return NextResponse.json(result);

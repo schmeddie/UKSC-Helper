@@ -9,10 +9,61 @@ import { TextHighlighter } from './text-highlighter';
 import { AIExplainer } from './ai-explainer';
 import { DebugPanel } from './DebugPanel';
 
+interface ContentBlock {
+  type: 'h2' | 'h3' | 'p' | 'quote';
+  text: string;
+}
+
 interface JudgmentReaderProps {
   uri: string;
   onCitationClick?: (uri: string) => void;
   onJudgmentLoad?: (judgment: any) => void;
+}
+
+interface StructuredBlockProps {
+  block: ContentBlock;
+  onCitationClick?: (uri: string) => void;
+}
+
+function StructuredBlock({ block, onCitationClick }: StructuredBlockProps) {
+  const baseClasses = 'font-serif leading-relaxed';
+
+  switch (block.type) {
+    case 'h2':
+      return (
+        <h2 className={`${baseClasses} text-2xl font-bold text-slate-900 border-b-2 border-gold pb-3 mb-4`}>
+          <TextHighlighter content={block.text} onCitationClick={onCitationClick} />
+        </h2>
+      );
+
+    case 'h3':
+      return (
+        <h3 className={`${baseClasses} text-xl font-bold text-slate-800 mt-8 mb-3`}>
+          <TextHighlighter content={block.text} onCitationClick={onCitationClick} />
+        </h3>
+      );
+
+    case 'p':
+      return (
+        <p className={`${baseClasses} text-lg text-slate-800`}>
+          <TextHighlighter content={block.text} onCitationClick={onCitationClick} />
+        </p>
+      );
+
+    case 'quote':
+      return (
+        <blockquote className={`${baseClasses} text-lg text-slate-600 italic border-l-4 border-blue-400 pl-6 py-2 my-4`}>
+          <TextHighlighter content={block.text} onCitationClick={onCitationClick} />
+        </blockquote>
+      );
+
+    default:
+      return (
+        <p className={`${baseClasses} text-lg text-slate-800`}>
+          <TextHighlighter content={block.text} onCitationClick={onCitationClick} />
+        </p>
+      );
+  }
 }
 
 export function JudgmentReader({ uri, onCitationClick, onJudgmentLoad }: JudgmentReaderProps) {
@@ -134,12 +185,26 @@ export function JudgmentReader({ uri, onCitationClick, onJudgmentLoad }: Judgmen
       {/* Reading Pane */}
       <div className="flex-1 overflow-y-auto relative">
         <div className="max-w-3xl mx-auto py-12 px-8 lg:px-12">
-          <div className="font-serif text-lg leading-loose text-slate-800 judgment-text">
-            <TextHighlighter
-              content={judgment.content}
-              onCitationClick={onCitationClick}
-            />
-          </div>
+          {judgment.structured ? (
+            // Render structured content blocks
+            <div className="space-y-6">
+              {judgment.structured.content.map((block, idx) => (
+                <StructuredBlock
+                  key={idx}
+                  block={block}
+                  onCitationClick={onCitationClick}
+                />
+              ))}
+            </div>
+          ) : (
+            // Fallback to legacy plain text rendering
+            <div className="font-serif text-lg leading-loose text-slate-800 judgment-text">
+              <TextHighlighter
+                content={judgment.content}
+                onCitationClick={onCitationClick}
+              />
+            </div>
+          )}
         </div>
       </div>
 

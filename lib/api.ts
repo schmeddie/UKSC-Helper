@@ -15,14 +15,30 @@ export interface DebugInfo {
   timestamp: string;
 }
 
+export interface ContentBlock {
+  type: 'h2' | 'h3' | 'p' | 'quote';
+  text: string;
+}
+
+export interface StructuredContent {
+  meta: {
+    case_name: string;
+    neutral_citation: string;
+    judgment_date: string;
+  };
+  content: ContentBlock[];
+}
+
 export interface Judgment {
   title: string;
   date: string;
   content: string;
+  structured?: StructuredContent;
   court: string;
   year: string;
   number: string;
   cite: string;
+  judges?: string[];
   debug?: DebugInfo;
 }
 
