@@ -72,7 +72,131 @@ function extractRawText(body: any): string {
 }
 
 /**
- * Call OpenRouter to structure the raw judgment text
+ * Split text into chunks at natural boundaries (paragraphs)
+ * Target chunk size is ~30,000 chars to stay well under LLM limits
+ */
+function chunkText(text: string, maxChunkSize: number = 30000): string[] {
+  if (text.length <= maxChunkSize) {
+    return [text];
+  }
+
+  const chunks: string[] = [];
+  const paragraphs = text.split(/\n\n+/);
+  let currentChunk = '';
+
+  for (const paragraph of paragraphs) {
+    const testChunk = currentChunk + (currentChunk ? '\n\n' : '') + paragraph;
+
+    if (testChunk.length > maxChunkSize && currentChunk) {
+      // Current chunk is full, start a new one
+      chunks.push(currentChunk);
+      currentChunk = paragraph;
+    } else {
+      currentChunk = testChunk;
+    }
+  }
+
+  if (currentChunk) {
+    chunks.push(currentChunk);
+  }
+
+  return chunks;
+}
+
+/**
+ * Process a single chunk with streaming support
+ */
+async function processChunkWithStreaming(
+  chunk: string,
+  chunkIndex: number,
+  totalChunks: number,
+  apiKey: string,
+  caseName: string,
+  citation: string,
+  date: string
+): Promise<ContentBlock[]> {
+  const systemPrompt = `You are a sophisticated Legal Editor. Your task is to take a raw UK Supreme Court judgment chunk and reformat it into a clean, structured JSON stream for a web reader.
+
+CRITICAL RULES:
+1. NO SUMMARIZATION. You must retain the FULL text of this chunk.
+2. Structure the content into a linear list of "blocks".
+3. Detect and assign the correct type to each block:
+   - "h2": For Judge names (e.g., "LORD REED:") or major section titles.
+   - "h3": For sub-headers (e.g., "The Background").
+   - "p": For standard paragraphs.
+   - "quote": For blockquotes, legislation citations, or excerpts.
+4. CLEANUP:
+   - Remove "Table of Contents" lists.
+   - Remove page numbers or weird XML artifacts.
+   - Fix formatting for Judge names (e.g., turn "Lord Reed:" into a clean "h2").
+5. This is chunk ${chunkIndex + 1} of ${totalChunks}. Only return the "content" array, not the full structure.
+6. Output strictly as a JSON array: [{ "type": "h2"|"h3"|"p"|"quote", "text": "string" }, ...]`;
+
+  try {
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://uksc-helper.vercel.app',
+        'X-Title': 'UKSC Judgment Reader',
+      },
+      body: JSON.stringify({
+        model: 'google/gemini-2.0-flash-exp:free',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: chunk },
+        ],
+        response_format: { type: 'json_object' },
+        max_tokens: 16000, // Ensure complete response
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`Chunk ${chunkIndex + 1} API error:`, response.status, errorText);
+      return [];
+    }
+
+    const data = await response.json();
+    const structuredText = data.choices?.[0]?.message?.content;
+
+    if (!structuredText) {
+      console.error(`Chunk ${chunkIndex + 1}: No content in response`);
+      return [];
+    }
+
+    // Parse the JSON
+    let parsed: any;
+    try {
+      parsed = JSON.parse(structuredText);
+    } catch (parseError) {
+      console.error(`Chunk ${chunkIndex + 1}: JSON parse error:`, parseError);
+      console.error('Response preview:', structuredText.substring(0, 500));
+      return [];
+    }
+
+    // Handle both array format and object format
+    let blocks: ContentBlock[] = [];
+    if (Array.isArray(parsed)) {
+      blocks = parsed;
+    } else if (parsed.content && Array.isArray(parsed.content)) {
+      blocks = parsed.content;
+    } else {
+      console.error(`Chunk ${chunkIndex + 1}: Invalid format`);
+      return [];
+    }
+
+    console.log(`✅ Chunk ${chunkIndex + 1}/${totalChunks}: ${blocks.length} blocks`);
+    return blocks;
+  } catch (error) {
+    console.error(`Chunk ${chunkIndex + 1} error:`, error);
+    return [];
+  }
+}
+
+/**
+ * Call OpenRouter to structure the raw judgment text with chunking and streaming
  */
 async function structureJudgmentWithLLM(
   rawText: string,
@@ -87,91 +211,40 @@ async function structureJudgmentWithLLM(
     return null;
   }
 
-  const systemPrompt = `You are a sophisticated Legal Editor. Your task is to take a raw, messy UK Supreme Court judgment and reformat it into a clean, structured JSON stream for a web reader.
-
-RULES:
-1. NO SUMMARIZATION. You must retain the FULL text of the judgment.
-2. Structure the content into a linear list of "blocks".
-3. Detect and assign the correct type to each block:
-   - "h2": For Judge names (e.g., "LORD REED:") or major section titles.
-   - "h3": For sub-headers (e.g., "The Background").
-   - "p": For standard paragraphs.
-   - "quote": For blockquotes, legislation citations, or excerpts.
-4. CLEANUP:
-   - Remove "Table of Contents" lists from the start.
-   - Remove page numbers or weird XML artifacts.
-   - Fix formatting for Judge names (e.g., turn "Lord Reed:" into a clean "h2").
-5. Output strictly matching this JSON schema:
-   {
-     "meta": {
-       "case_name": "string",
-       "neutral_citation": "string",
-       "judgment_date": "string"
-     },
-     "content": [
-       { "type": "h2" | "h3" | "p" | "quote", "text": "string" }
-     ]
-   }`;
-
   try {
     console.log('Calling OpenRouter to structure judgment...');
     console.log('Text length:', rawText.length, 'characters');
 
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://uksc-helper.vercel.app',
-        'X-Title': 'UKSC Judgment Reader',
-      },
-      body: JSON.stringify({
-        model: 'google/gemini-2.0-flash-exp:free',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: `Structure this judgment:\n\n${rawText}` },
-        ],
-        response_format: { type: 'json_object' },
-      }),
-    });
+    // Split into chunks if text is too long
+    const chunks = chunkText(rawText, 30000);
+    console.log(`Split into ${chunks.length} chunk(s)`);
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('OpenRouter API error:', response.status, errorText);
-      return null;
-    }
+    // Process all chunks in parallel for speed
+    const chunkPromises = chunks.map((chunk, index) =>
+      processChunkWithStreaming(chunk, index, chunks.length, apiKey, caseName, citation, date)
+    );
 
-    const data = await response.json();
-    const structuredText = data.choices?.[0]?.message?.content;
+    const chunkResults = await Promise.all(chunkPromises);
 
-    if (!structuredText) {
-      console.error('No content in OpenRouter response');
-      console.error('Full response:', JSON.stringify(data, null, 2));
-      return null;
-    }
+    // Merge all blocks from all chunks
+    const allBlocks: ContentBlock[] = chunkResults.flat();
 
-    console.log('Raw LLM response length:', structuredText.length);
-    console.log('Response preview:', structuredText.substring(0, 200));
-
-    // Try to parse the JSON
-    let structured: StructuredContent;
-    try {
-      structured = JSON.parse(structuredText) as StructuredContent;
-    } catch (parseError) {
-      console.error('JSON parse error:', parseError);
-      console.error('Full response text:', structuredText);
-      return null;
-    }
-
-    // Validate the structure
-    if (!structured.content || !Array.isArray(structured.content)) {
-      console.error('Invalid structured content format');
-      console.error('Received:', JSON.stringify(structured, null, 2).substring(0, 500));
+    if (allBlocks.length === 0) {
+      console.error('No blocks generated from any chunk');
       return null;
     }
 
     console.log('✅ Successfully structured judgment');
-    console.log('Blocks created:', structured.content.length);
+    console.log('Total blocks created:', allBlocks.length);
+
+    const structured: StructuredContent = {
+      meta: {
+        case_name: caseName,
+        neutral_citation: citation,
+        judgment_date: date,
+      },
+      content: allBlocks,
+    };
 
     return structured;
   } catch (error) {
