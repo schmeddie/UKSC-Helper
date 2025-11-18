@@ -1,10 +1,9 @@
 /**
  * National Archives Find Case Law API Client
- * Uses the /id/ endpoint to fetch Akoma Ntoso XML formatted judgments
- * Base URL: https://caselaw.nationalarchives.gov.uk/id
+ * Uses our server-side API route to bypass CORS restrictions
+ * API Route: /api/judgment?citation=court/year/number
  */
 
-const XML_BASE_URL = 'https://caselaw.nationalarchives.gov.uk/id';
 const API_BASE_URL = 'https://caselaw.nationalarchives.gov.uk';
 
 export interface Judgment {
@@ -18,101 +17,28 @@ export interface Judgment {
 }
 
 /**
- * Parse Akoma Ntoso XML to extract judgment data
- * Extracts: <FRBRname>, <FRBRdate>, and <p> tags
- */
-export function parseJudgmentXML(xmlString: string): Judgment {
-  const parser = new DOMParser();
-  const xmlDoc = parser.parseFromString(xmlString, 'text/xml');
-
-  // Check for parsing errors
-  const parserError = xmlDoc.querySelector('parsererror');
-  if (parserError) {
-    throw new Error('Failed to parse XML: ' + parserError.textContent);
-  }
-
-  // Extract case title from <FRBRname>
-  const nameElement = xmlDoc.querySelector('FRBRname');
-  const title = nameElement?.getAttribute('value') || 'Untitled Judgment';
-
-  // Extract judgment date from <FRBRdate>
-  const dateElement = xmlDoc.querySelector('FRBRdate[name="judgment"]');
-  const date = dateElement?.getAttribute('date') || '';
-
-  // Extract court and citation info from <FRBRWork>
-  const workElement = xmlDoc.querySelector('FRBRWork FRBRthis');
-  const workUri = workElement?.getAttribute('value') || '';
-
-  // Parse URI like /uksc/2019/41 to extract court, year, number
-  const uriMatch = workUri.match(/\/([a-z]+)\/(\d{4})\/(\d+)/i);
-  const court = uriMatch?.[1]?.toUpperCase() || '';
-  const year = uriMatch?.[2] || '';
-  const number = uriMatch?.[3] || '';
-
-  // Construct neutral citation
-  const cite = court && year && number ? `[${year}] ${court} ${number}` : '';
-
-  // Extract content from all <p> tags in the judgment body
-  const paragraphs = xmlDoc.querySelectorAll('judgmentBody p, mainBody p');
-  const contentParts: string[] = [];
-
-  paragraphs.forEach((p) => {
-    const text = p.textContent?.trim();
-    if (text) {
-      contentParts.push(text);
-    }
-  });
-
-  // If no paragraphs found, try to extract any text content
-  if (contentParts.length === 0) {
-    const body = xmlDoc.querySelector('judgmentBody, mainBody');
-    if (body) {
-      const text = body.textContent?.trim();
-      if (text) {
-        // Split into paragraphs on double line breaks
-        contentParts.push(...text.split(/\n\n+/).filter(Boolean));
-      }
-    }
-  }
-
-  const content = contentParts.join('\n\n');
-
-  return {
-    title,
-    date,
-    content: content || 'No content available',
-    court,
-    year,
-    number,
-    cite,
-  };
-}
-
-/**
  * Fetch judgment by court, year, and number
  * Example: fetchJudgment('uksc', '2019', '41')
- * Fetches from: https://caselaw.nationalarchives.gov.uk/id/uksc/2019/41/data.xml
+ * Fetches via our server-side proxy: /api/judgment?citation=uksc/2019/41
+ * This bypasses CORS restrictions by making the request from the server
  */
 export async function fetchJudgment(
   court: string,
   year: string,
   number: string
 ): Promise<Judgment> {
-  const courtLower = court.toLowerCase();
-  const url = `${XML_BASE_URL}/${courtLower}/${year}/${number}/data.xml`;
+  const citation = `${court.toLowerCase()}/${year}/${number}`;
+  const url = `/api/judgment?citation=${encodeURIComponent(citation)}`;
 
   try {
     const response = await fetch(url);
 
     if (!response.ok) {
-      throw new Error(
-        `Failed to fetch judgment: ${response.status} ${response.statusText}`
-      );
+      const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+      throw new Error(errorData.error || `Failed to fetch judgment: ${response.statusText}`);
     }
 
-    const xmlString = await response.text();
-    const judgment = parseJudgmentXML(xmlString);
-
+    const judgment: Judgment = await response.json();
     return judgment;
   } catch (error) {
     console.error('Error fetching judgment:', error);
