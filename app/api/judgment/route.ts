@@ -62,20 +62,52 @@ export async function GET(request: NextRequest) {
 
     const [court, year, number] = parts;
 
-    // Construct URL
-    const xmlUrl = `https://caselaw.nationalarchives.gov.uk/id/${court}/${year}/${number}/data.xml`;
+    // Try both URL patterns (court-specific feeds use /uksc/year/num, generic feeds use /id/uksc/year/num)
+    const urlsToTry = [
+      `https://caselaw.nationalarchives.gov.uk/${court}/${year}/${number}/data.xml`,
+      `https://caselaw.nationalarchives.gov.uk/id/${court}/${year}/${number}/data.xml`,
+    ];
+
+    let response: Response | null = null;
+    let xmlUrl = '';
+
+    for (const url of urlsToTry) {
+      console.log('Trying URL:', url);
+      try {
+        const resp = await fetch(url, {
+          headers: {
+            'User-Agent': 'Caselaw-Explorer/1.0 (Educational)',
+            'Accept': 'application/xml, text/xml, */*',
+          },
+        });
+
+        console.log('Response Status:', resp.status);
+
+        if (resp.ok) {
+          response = resp;
+          xmlUrl = url;
+          console.log('✅ Successfully fetched from:', url);
+          break;
+        } else {
+          console.log('❌ Failed with status:', resp.status);
+        }
+      } catch (error) {
+        console.log('❌ Fetch error for', url, ':', error instanceof Error ? error.message : 'Unknown error');
+      }
+    }
+
+    if (!response || !response.ok) {
+      console.error('All judgment URLs failed');
+      return NextResponse.json(
+        {
+          error: `Failed to fetch judgment from any source`,
+          debug: { ...debugInfo, attemptedUrl: urlsToTry.join(', ') } as DebugInfo,
+        },
+        { status: 404 }
+      );
+    }
+
     debugInfo.attemptedUrl = xmlUrl;
-
-    console.log('Fetching URL:', xmlUrl);
-
-    // Fetch XML from National Archives (server-side, no CORS issues)
-    const response = await fetch(xmlUrl, {
-      headers: {
-        'User-Agent': 'Caselaw-Explorer/1.0 (Educational)',
-        'Accept': 'application/xml, text/xml, */*',
-      },
-    });
-
     debugInfo.statusCode = response.status;
     debugInfo.contentType = response.headers.get('content-type');
 
