@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Loader2, BookOpen, Calendar, Briefcase } from 'lucide-react';
@@ -12,14 +12,22 @@ import { DebugPanel } from './DebugPanel';
 interface JudgmentReaderProps {
   uri: string;
   onCitationClick?: (uri: string) => void;
+  onJudgmentLoad?: (judgment: any) => void;
 }
 
-export function JudgmentReader({ uri, onCitationClick }: JudgmentReaderProps) {
+export function JudgmentReader({ uri, onCitationClick, onJudgmentLoad }: JudgmentReaderProps) {
   const { data: judgment, isLoading, error } = useQuery({
     queryKey: ['judgment', uri],
     queryFn: () => fetchJudgmentByUri(uri),
     enabled: !!uri,
   });
+
+  // Notify parent when judgment loads
+  useEffect(() => {
+    if (onJudgmentLoad) {
+      onJudgmentLoad(judgment || null);
+    }
+  }, [judgment, onJudgmentLoad]);
 
   if (!uri) {
     return (
