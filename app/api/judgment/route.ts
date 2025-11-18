@@ -126,7 +126,7 @@ RULES:
         'X-Title': 'UKSC Judgment Reader',
       },
       body: JSON.stringify({
-        model: 'google/gemini-flash-1.5',
+        model: 'google/gemini-2.0-flash-exp:free',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: `Structure this judgment:\n\n${rawText}` },
