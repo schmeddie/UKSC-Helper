@@ -18,37 +18,56 @@ export async function GET(request: NextRequest) {
     const order = searchParams.get('order') || '-date';
 
     // Use the Atom feed which is documented and returns XML
-    // Try court-specific feed if court parameter is provided
-    let url = `https://caselaw.nationalarchives.gov.uk/atom.xml`;
-    if (court) {
-      // Try court-specific feed URL
-      url = `https://caselaw.nationalarchives.gov.uk/${court.toLowerCase()}/atom.xml`;
+    // Try multiple URL patterns to find court-specific feed
+    const urlsToTry = court
+      ? [
+          `https://caselaw.nationalarchives.gov.uk/${court.toLowerCase()}/atom.xml`,
+          `https://caselaw.nationalarchives.gov.uk/atom.xml?court=${court.toLowerCase()}`,
+          `https://caselaw.nationalarchives.gov.uk/atom.xml`,
+        ]
+      : [`https://caselaw.nationalarchives.gov.uk/atom.xml`];
+
+    let response: Response | null = null;
+    let workingUrl = '';
+
+    for (const url of urlsToTry) {
+      console.log('Trying Atom feed URL:', url);
+      try {
+        const resp = await fetch(url, {
+          headers: {
+            'User-Agent': 'Caselaw-Explorer/1.0 (Educational)',
+            'Accept': 'application/atom+xml, application/xml, text/xml',
+          },
+        });
+
+        console.log('Response Status:', resp.status, 'Content-Type:', resp.headers.get('content-type'));
+
+        if (resp.ok) {
+          response = resp;
+          workingUrl = url;
+          console.log('✅ Successfully fetched from:', url);
+          break;
+        } else {
+          console.log('❌ Failed with status:', resp.status);
+        }
+      } catch (error) {
+        console.log('❌ Fetch error for', url, ':', error instanceof Error ? error.message : 'Unknown error');
+      }
     }
-    console.log('Fetching Atom feed:', url);
 
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'Caselaw-Explorer/1.0 (Educational)',
-        'Accept': 'application/atom+xml, application/xml, text/xml',
-      },
-    });
-
-    console.log('Response Status:', response.status);
-    console.log('Content-Type:', response.headers.get('content-type'));
-
-    if (!response.ok) {
-      const text = await response.text();
-      console.error('Atom feed Error:', response.status, text.substring(0, 200));
-
+    if (!response || !response.ok) {
+      console.error('All Atom feed URLs failed');
       return NextResponse.json(
         {
-          error: `Failed to fetch Atom feed: ${response.status} ${response.statusText}`,
+          error: `Failed to fetch Atom feed from any source`,
           results: [],
           total: 0,
         },
-        { status: response.status }
+        { status: 500 }
       );
     }
+
+    console.log('Using feed from:', workingUrl);
 
     // Parse Atom XML
     const xmlText = await response.text();
@@ -122,8 +141,21 @@ export async function GET(request: NextRequest) {
     // Filter by court if specified
     if (court) {
       const courtUpper = court.toUpperCase();
+      const beforeFilter = results.length;
       results = results.filter((item: any) => item.court === courtUpper);
-      console.log('Filtered to court', courtUpper + ':', results.length, 'results');
+      console.log(`Filtered to court ${courtUpper}: ${results.length} results (from ${beforeFilter} total entries)`);
+
+      // If we got 0 results from a court-specific feed, that's unexpected
+      if (results.length === 0 && workingUrl.includes(`/${court.toLowerCase()}/atom.xml`)) {
+        console.warn(`⚠️  Court-specific feed returned 0 results - this is unexpected`);
+      }
+
+      // If we got 0 results from the generic feed, try to provide helpful info
+      if (results.length === 0 && workingUrl.includes('/atom.xml') && !workingUrl.includes(`/${court.toLowerCase()}`)) {
+        console.warn(`⚠️  No ${courtUpper} cases found in the ${beforeFilter} most recent entries`);
+        console.warn(`   This likely means ${courtUpper} hasn't published cases recently`);
+        console.warn(`   Consider using a court-specific feed or expanding the search`);
+      }
     }
 
     // Sort by date if requested (Atom feed is already in reverse chronological order)
