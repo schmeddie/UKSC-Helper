@@ -39,25 +39,59 @@ function extractRawText(body: any): string {
 }
 
 /**
- * Format judgment text with AI
- * Simple synchronous call - text in, blocks out
+ * Split text into chunks at paragraph boundaries
  */
-async function formatWithAI(text: string, apiKey: string): Promise<ContentBlock[]> {
+function chunkText(text: string, maxChunkSize: number = 25000): string[] {
+  if (text.length <= maxChunkSize) {
+    return [text];
+  }
+
+  const chunks: string[] = [];
+  const paragraphs = text.split(/\n\n+/);
+  let currentChunk = '';
+
+  for (const paragraph of paragraphs) {
+    const testChunk = currentChunk + (currentChunk ? '\n\n' : '') + paragraph;
+
+    if (testChunk.length > maxChunkSize && currentChunk) {
+      chunks.push(currentChunk);
+      currentChunk = paragraph;
+    } else {
+      currentChunk = testChunk;
+    }
+  }
+
+  if (currentChunk) {
+    chunks.push(currentChunk);
+  }
+
+  return chunks;
+}
+
+/**
+ * Format a single chunk with AI
+ */
+async function formatChunk(chunk: string, chunkIndex: number, totalChunks: number, apiKey: string): Promise<ContentBlock[]> {
+  // Only include TOC removal instructions for first chunk
+  const tocInstructions = chunkIndex === 0
+    ? `CRITICAL - REMOVE FROM START (first chunk only):
+1. Table of contents (lists of section titles with no content)
+2. Page numbers, headers, footers at top
+3. Metadata blocks (case numbers, dates at top)
+4. Any standalone lists of headings before main text
+
+EXAMPLE OF WHAT TO REMOVE:
+BAD: "Introduction\\nBackground\\nStatutory provisions\\n\\n"
+GOOD: Start from "1. This appeal concerns..."
+
+`
+    : '';
+
   const systemPrompt = `You are a Legal Document Formatter for UK Supreme Court judgments.
 
 YOUR TASK: Transform raw legal text into clean, structured JSON blocks.
 
-CRITICAL - REMOVE COMPLETELY (do NOT include in output):
-1. Table of contents at the start (lists of section titles with no content)
-2. Page numbers, headers, footers
-3. Metadata blocks (case numbers, dates at top)
-4. Any standalone lists of headings before the main text starts
-
-EXAMPLE:
-BAD (remove this): "Introduction\\nBackground\\nStatutory provisions\\nConclusion\\n\\n"
-GOOD (start here): "1. This appeal concerns the interpretation..."
-
-IDENTIFY THESE BLOCK TYPES:
+${tocInstructions}IDENTIFY THESE BLOCK TYPES:
 - h2: Major section headers (LORD REED, INTRODUCTION, JUDGMENT, Part I)
 - h3: Subsection headers (The legislative framework, Analysis)
 - p: Regular paragraph text
@@ -68,12 +102,11 @@ FORMATTING RULES:
 2. Major sections to uppercase: "Introduction" → "INTRODUCTION"
 3. Preserve ALL paragraph text - no summarization
 4. Combine sentence fragments into complete paragraphs
-5. Remove duplicate text
 
-OUTPUT: JSON array only
+OUTPUT: JSON array only, no wrapper object
 [{"type":"h2","text":"INTRODUCTION"},{"type":"p","text":"This appeal concerns..."}]`;
 
-  console.log(`🤖 Calling AI to format ${text.length} chars...`);
+  console.log(`  🤖 Chunk ${chunkIndex + 1}/${totalChunks}: Calling AI (${chunk.length} chars)...`);
 
   const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
@@ -85,7 +118,7 @@ OUTPUT: JSON array only
       model: 'google/gemini-2.0-flash-001',
       messages: [
         { role: 'system', content: systemPrompt },
-        { role: 'user', content: text },
+        { role: 'user', content: chunk },
       ],
       response_format: { type: 'json_object' },
       max_tokens: 16000,
@@ -93,7 +126,8 @@ OUTPUT: JSON array only
   });
 
   if (!response.ok) {
-    throw new Error(`AI API error: ${response.status}`);
+    const errorText = await response.text();
+    throw new Error(`AI API error ${response.status}: ${errorText}`);
   }
 
   const data = await response.json();
@@ -103,7 +137,13 @@ OUTPUT: JSON array only
     throw new Error('No content in AI response');
   }
 
-  const parsed = JSON.parse(content);
+  let parsed: any;
+  try {
+    parsed = JSON.parse(content);
+  } catch (e) {
+    console.error(`  ❌ JSON parse error. Response preview:`, content.substring(0, 200));
+    throw e;
+  }
 
   // Handle different response formats
   let blocks: ContentBlock[] = [];
@@ -115,16 +155,36 @@ OUTPUT: JSON array only
     blocks = parsed.blocks;
   }
 
-  console.log(`✅ AI returned ${blocks.length} blocks`);
+  console.log(`  ✅ Chunk ${chunkIndex + 1}: Received ${blocks.length} blocks`);
+
+  return blocks;
+}
+
+/**
+ * Format entire judgment with AI (handles chunking internally)
+ */
+async function formatWithAI(text: string, apiKey: string): Promise<ContentBlock[]> {
+  console.log(`🤖 Formatting ${text.length} chars...`);
+
+  // Split into chunks if needed
+  const chunks = chunkText(text, 25000);
+  console.log(`📦 Split into ${chunks.length} chunk(s)`);
+
+  // Process all chunks
+  const allBlocks: ContentBlock[] = [];
+  for (let i = 0; i < chunks.length; i++) {
+    const chunkBlocks = await formatChunk(chunks[i], i, chunks.length, apiKey);
+    allBlocks.push(...chunkBlocks);
+  }
 
   // Log type distribution
-  const typeCounts = blocks.reduce((acc, b) => {
+  const typeCounts = allBlocks.reduce((acc, b) => {
     acc[b.type] = (acc[b.type] || 0) + 1;
     return acc;
   }, {} as Record<string, number>);
-  console.log('Block types:', typeCounts);
+  console.log(`✅ Total: ${allBlocks.length} blocks`, typeCounts);
 
-  return blocks;
+  return allBlocks;
 }
 
 /**
