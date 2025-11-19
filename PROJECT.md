@@ -1,7 +1,7 @@
 # UKSC Helper - UK Supreme Court Judgment Reader
 
-**Last Updated:** 2025-01-XX
-**Version:** 1.0.0
+**Last Updated:** 2025-01-19
+**Version:** 1.1.0
 **AI Instruction:** This file MUST be updated whenever significant architectural changes are made to the project.
 
 ---
@@ -27,10 +27,11 @@ UKSC Helper is a web application for reading and analyzing UK Supreme Court judg
 ### Core Features
 - **Case Search & Browse**: Search 50 recent UKSC cases
 - **AI-Powered Formatting**: LLM structures raw XML into clean, hierarchical format
-- **Real-Time Streaming**: Judgment text streams in progressively as AI processes it
+- **Smart Chunking**: Handles any judgment length with intelligent text splitting
 - **Legal Dictionary**: Auto-highlight and define legal terms inline
 - **3-Panel Layout**: Collapsible navigation, main reader, case details sidebar
 - **Judge Extraction**: Automatically identifies judges from XML metadata
+- **Clean Structure**: Removes table of contents and formatting artifacts
 
 ---
 
@@ -72,8 +73,9 @@ UKSC Helper is a web application for reading and analyzing UK Supreme Court judg
 ### Design Philosophy
 - **Server-Side Processing**: All external API calls happen server-side to avoid CORS
 - **Progressive Enhancement**: Falls back gracefully if AI formatting fails
-- **Streaming-First**: Use SSE for real-time content delivery
+- **Simplicity First**: Simple REST endpoints over complex streaming (easier to debug, more reliable)
 - **Type Safety**: TypeScript throughout for reliability
+- **Smart Chunking**: Handle any judgment length by splitting intelligently at natural boundaries
 
 ---
 
@@ -216,58 +218,103 @@ interface Judgment {
 ```
 
 ### 3. AI Formatting System
-**Location**: `app/api/judgment/route.ts` (processChunkWithStreaming)
+**Location**: `app/api/judgment/stream/route.ts` (formatWithAI, formatChunk)
 
 **Purpose**: Transform messy XML text into clean, structured, hierarchical format.
 
 **How It Works**:
 1. **Text Extraction**: Recursively traverse XML to extract all text nodes
-2. **Chunking**: Split into ~30k character chunks at paragraph boundaries
+2. **Smart Chunking**: Split into 15k character chunks
+   - Splits at paragraph boundaries (`\n\n`)
+   - If single paragraph > 15k, splits by sentences
+   - Prevents oversized chunks that cause JSON truncation
 3. **LLM Processing**: Send each chunk to Gemini Flash with structured prompt
+   - Model: `google/gemini-2.0-flash-001`
+   - Max tokens: 8000 (prevents truncation)
+   - Response format: JSON object
 4. **Block Classification**: LLM identifies and labels:
-   - `h2`: Major sections (Introduction, LORD REED, Part I)
+   - `h2`: Major sections (INTRODUCTION, LORD REED, Part I)
    - `h3`: Subsections (The legislative framework, Analysis)
    - `p`: Regular paragraphs
    - `quote`: Quoted legislation or case law
-5. **Merging**: Combine all chunk results into single structure
+5. **TOC Removal**: First chunk only - removes table of contents
+6. **Merging**: Combine all chunk results into single block array
 
-**System Prompt** (summarized):
+**System Prompt** (key parts):
 ```
-Identify structural sections: Introduction, Background, judge names
-Recognize patterns: ALL CAPS titles, numbered sections, colons
-Clean formatting: Remove TOC, page numbers, artifacts
-Preserve ALL text - no summarization
-Output: JSON array of blocks with type and text
+CRITICAL - REMOVE FROM START (first chunk only):
+- Table of contents (lists of section titles with no content)
+- Page numbers, headers, footers at top
+- Metadata blocks
+
+IDENTIFY THESE BLOCK TYPES:
+- h2: Major section headers (LORD REED, INTRODUCTION, JUDGMENT, Part I)
+- h3: Subsection headers (The legislative framework, Analysis)
+- p: Regular paragraph text
+- quote: Indented quotes from legislation or cases
+
+FORMATTING RULES:
+1. Convert all judge names to uppercase: "Lord Reed" → "LORD REED"
+2. Major sections to uppercase: "Introduction" → "INTRODUCTION"
+3. Preserve ALL paragraph text - no summarization
+4. Combine sentence fragments into complete paragraphs
+
+OUTPUT: JSON array only, no wrapper object
+[{"type":"h2","text":"INTRODUCTION"},{"type":"p","text":"This appeal concerns..."}]
 ```
 
 **Why AI Formatting?**
 - Makes all judgments uniform and consistent
 - Identifies document structure automatically
 - Creates clear visual hierarchy
-- Removes artifacts and cleanup
+- Removes table of contents and artifacts
 - Enables better reading experience
 
-### 4. Streaming System
+### 4. Formatting Endpoint System
 **Location**: `app/api/judgment/stream/route.ts`
 
-**Purpose**: Send formatted blocks to client in real-time as LLM generates them.
+**Purpose**: Process entire judgment with AI and return formatted blocks as JSON.
+
+**Architecture**: Simple REST endpoint (no streaming complexity)
 
 **How It Works**:
-1. Client opens EventSource connection to `/api/judgment/stream?citation=...`
-2. Server fetches and chunks text
-3. For each chunk:
-   - Call OpenRouter with `stream: true`
-   - Read SSE stream token-by-token
-   - Parse JSON as it forms
-   - Send complete blocks immediately to client
-4. Client receives events and renders blocks progressively
+1. Client calls `GET /api/judgment/stream?citation=uksc/2025/39`
+2. Server:
+   - Fetches XML from National Archives
+   - Extracts raw text
+   - Splits into chunks (15k chars)
+   - Processes each chunk with AI sequentially
+   - Combines all blocks
+   - Returns `{ blocks: [...] }`
+3. Client receives complete formatted judgment and displays
 
-**Event Types**:
-- `meta`: `{ type: 'meta', totalChunks: 4 }`
-- `block`: `{ type: 'block', block: { type: 'h2', text: 'Introduction' } }`
-- `chunk_complete`: `{ type: 'chunk_complete', index: 1, total: 4 }`
-- `complete`: `{ type: 'complete' }`
-- `error`: `{ type: 'error', message: '...' }`
+**Request/Response**:
+```typescript
+// Request
+GET /api/judgment/stream?citation=uksc/2025/39
+
+// Response (200 OK)
+{
+  "blocks": [
+    { "type": "h2", "text": "LORD STEPHENS" },
+    { "type": "h2", "text": "INTRODUCTION" },
+    { "type": "p", "text": "This appeal concerns..." },
+    { "type": "h3", "text": "The legislative framework" },
+    { "type": "p", "text": "Section 15 of the Act..." }
+  ]
+}
+
+// Error Response (500)
+{
+  "error": "AI API error 429: Rate limit exceeded"
+}
+```
+
+**Client Implementation** (`components/judgment-reader.tsx`):
+- Shows "Formatting judgment with AI..." while processing
+- Displays formatted blocks when ready
+- Falls back to raw text on error
+- No streaming complexity - just fetch and display
 
 ### 5. Legal Dictionary System
 **Location**: `lib/store.ts`, `components/text-highlighter.tsx`
@@ -566,13 +613,19 @@ npm run build
 ### No Text Appearing
 1. Check server logs for errors
 2. Verify OpenRouter API key is valid
-3. Check if streaming endpoint is reachable
-4. Fall back to non-streaming endpoint
+3. Check browser console for detailed error messages
+4. Check if formatting endpoint is reachable
+
+### JSON Truncation Errors
+1. Reduce chunk size (currently 15k chars)
+2. Reduce max_tokens (currently 8000)
+3. Check for oversized paragraphs in logs
+4. Verify smart chunking is splitting by sentences
 
 ### Slow Performance
-1. Reduce chunk size (currently 30k chars)
-2. Process chunks sequentially instead of parallel
-3. Use faster model (Gemini Flash is already fast)
+1. Chunk size is already optimized (15k chars)
+2. Processing is sequential (prevents rate limiting)
+3. Model is optimized (Gemini Flash is fastest)
 
 ---
 
@@ -599,10 +652,32 @@ npm run build
 
 ## Changelog
 
-### Version 1.0.0 (Current)
+### Version 1.1.0 (2025-01-19) - Formatting System Overhaul
+**Major Changes:**
+- 🔄 Rebuilt formatting system from scratch with simplicity in mind
+- ❌ Removed complex SSE streaming (too complex, unreliable)
+- ✅ Implemented simple REST endpoint for formatting
+- ✅ Added smart chunking with paragraph and sentence splitting
+- ✅ Reduced chunk size: 25k → 15k chars (prevents truncation)
+- ✅ Reduced max tokens: 16k → 8k (prevents incomplete JSON)
+- ✅ Enhanced TOC removal in system prompt
+- ✅ Added comprehensive error logging (client + server)
+
+**Technical Details:**
+- Client now makes single API call and waits for complete response
+- Server handles chunking internally (transparent to client)
+- Smart chunking detects oversized paragraphs and splits by sentences
+- Better error messages show actual failure reasons
+- Fixed JSON truncation issues with long judgments
+
+**Files Changed:**
+- `app/api/judgment/stream/route.ts`: Complete rewrite (500+ lines changed)
+- `components/judgment-reader.tsx`: Simplified state management
+- `PROJECT.md`: Updated documentation
+
+### Version 1.0.0 (2025-01-15) - Initial Release
 - ✅ Case search and browsing
 - ✅ AI-powered formatting with Gemini Flash
-- ✅ Real-time streaming (SSE)
 - ✅ Legal dictionary with Trie matching
 - ✅ 3-panel collapsible layout
 - ✅ Judge extraction from XML
