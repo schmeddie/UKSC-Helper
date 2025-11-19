@@ -118,6 +118,8 @@ Example:
   { "type": "p", "text": "Section 1 of the Act provides..." }
 ]`;
 
+  console.log(`Processing chunk ${chunkIndex + 1}/${totalChunks}, length: ${chunk.length} chars`);
+
   try {
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
@@ -154,6 +156,7 @@ Example:
     const decoder = new TextDecoder();
     let buffer = '';
     let accumulatedJson = '';
+    let sentBlockCount = 0; // Track how many blocks we've already sent
 
     while (true) {
       const { done, value } = await reader.read();
@@ -175,20 +178,33 @@ Example:
             if (content) {
               accumulatedJson += content;
 
-              // Try to parse complete blocks as they form
-              // Look for complete block patterns: { "type": "...", "text": "..." }
-              const blockMatches = accumulatedJson.match(/\{\s*"type"\s*:\s*"(h2|h3|p|quote)"\s*,\s*"text"\s*:\s*"([^"\\]*(\\.[^"\\]*)*)"\s*\}/g);
+              // Try to parse as a complete JSON array or object
+              try {
+                let parsedContent: any;
+                const trimmed = accumulatedJson.trim();
 
-              if (blockMatches && blockMatches.length > 0) {
-                for (const blockMatch of blockMatches) {
-                  try {
-                    const block = JSON.parse(blockMatch);
-                    // Send the block to client immediately
-                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'block', block })}\n\n`));
-                  } catch (e) {
-                    // Block not yet complete, continue accumulating
+                // Try parsing as array first
+                if (trimmed.startsWith('[')) {
+                  parsedContent = JSON.parse(trimmed);
+                } else if (trimmed.startsWith('{')) {
+                  const fullJson = JSON.parse(trimmed);
+                  parsedContent = fullJson.content || fullJson;
+                }
+
+                // If we successfully parsed and got an array
+                if (Array.isArray(parsedContent)) {
+                  // Send any new blocks we haven't sent yet
+                  for (let i = sentBlockCount; i < parsedContent.length; i++) {
+                    const block = parsedContent[i];
+                    if (block.type && block.text) {
+                      console.log(`Streaming block ${sentBlockCount + 1}: ${block.type} - ${block.text.substring(0, 50)}...`);
+                      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'block', block })}\n\n`));
+                      sentBlockCount++;
+                    }
                   }
                 }
+              } catch (parseError) {
+                // JSON not complete yet, continue accumulating
               }
             }
           } catch (e) {
@@ -198,28 +214,34 @@ Example:
       }
     }
 
-    // Try to parse any remaining content
+    // Parse any remaining content and send unsent blocks
     if (accumulatedJson) {
       try {
         let parsed: any;
-        // Try parsing as array first
-        if (accumulatedJson.trim().startsWith('[')) {
-          parsed = JSON.parse(accumulatedJson);
-        } else {
-          // Might be wrapped in object
-          const fullJson = JSON.parse(accumulatedJson);
+        const trimmed = accumulatedJson.trim();
+
+        if (trimmed.startsWith('[')) {
+          parsed = JSON.parse(trimmed);
+        } else if (trimmed.startsWith('{')) {
+          const fullJson = JSON.parse(trimmed);
           parsed = fullJson.content || fullJson;
         }
 
         if (Array.isArray(parsed)) {
-          for (const block of parsed) {
+          for (let i = sentBlockCount; i < parsed.length; i++) {
+            const block = parsed[i];
             if (block.type && block.text) {
+              console.log(`Final block ${i + 1}: ${block.type} - ${block.text.substring(0, 50)}...`);
               controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'block', block })}\n\n`));
+              sentBlockCount++;
             }
           }
         }
+
+        console.log(`✅ Chunk ${chunkIndex + 1}/${totalChunks} complete: sent ${sentBlockCount} blocks`);
       } catch (e) {
-        console.error(`Chunk ${chunkIndex + 1}: Error parsing accumulated JSON:`, e);
+        console.error(`Chunk ${chunkIndex + 1}: Error parsing final JSON:`, e);
+        console.error('Accumulated JSON preview:', accumulatedJson.substring(0, 200));
       }
     }
   } catch (error) {
