@@ -4,6 +4,7 @@ import React, { useMemo } from 'react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useDictionaryStore } from '@/lib/store';
 import { findCitations } from '@/lib/citations';
+import { LegalTermCategory } from '@/lib/types';
 
 interface TextHighlighterProps {
   content: string;
@@ -16,8 +17,35 @@ interface Segment {
   start: number;
   end: number;
   definition?: string;
+  category?: LegalTermCategory;
   uri?: string;
 }
+
+// Map categories to Tailwind color classes (more visible underlines)
+const getCategoryClasses = (category: LegalTermCategory): string => {
+  const baseClasses = 'underline decoration-2 cursor-help transition-all duration-200';
+
+  switch (category) {
+    case 'latin':
+      return `${baseClasses} decoration-purple-500 hover:decoration-purple-700 hover:bg-purple-50`;
+    case 'procedural':
+      return `${baseClasses} decoration-blue-500 hover:decoration-blue-700 hover:bg-blue-50`;
+    case 'constitutional':
+      return `${baseClasses} decoration-amber-500 hover:decoration-amber-700 hover:bg-amber-50`;
+    case 'tort':
+      return `${baseClasses} decoration-red-500 hover:decoration-red-700 hover:bg-red-50`;
+    case 'contract':
+      return `${baseClasses} decoration-green-500 hover:decoration-green-700 hover:bg-green-50`;
+    case 'criminal':
+      return `${baseClasses} decoration-orange-500 hover:decoration-orange-700 hover:bg-orange-50`;
+    case 'evidence':
+      return `${baseClasses} decoration-teal-500 hover:decoration-teal-700 hover:bg-teal-50`;
+    case 'property':
+      return `${baseClasses} decoration-yellow-600 hover:decoration-yellow-800 hover:bg-yellow-50`;
+    default:
+      return `${baseClasses} decoration-gray-500 hover:decoration-gray-700 hover:bg-gray-50`;
+  }
+};
 
 export function TextHighlighter({ content, onCitationClick }: TextHighlighterProps) {
   const findMatches = useDictionaryStore((state) => state.findMatches);
@@ -32,6 +60,7 @@ export function TextHighlighter({ content, onCitationClick }: TextHighlighterPro
       start: number;
       end: number;
       definition?: string;
+      category?: LegalTermCategory;
       uri?: string;
     }> = [
       ...termMatches.map((m) => ({ type: 'term' as const, ...m })),
@@ -76,6 +105,7 @@ export function TextHighlighter({ content, onCitationClick }: TextHighlighterPro
         start: match.start,
         end: match.end,
         definition: match.type === 'term' ? match.definition : undefined,
+        category: match.type === 'term' ? match.category : undefined,
         uri: match.type === 'citation' ? match.uri : undefined,
       });
 
@@ -102,18 +132,27 @@ export function TextHighlighter({ content, onCitationClick }: TextHighlighterPro
           return <span key={index}>{segment.text}</span>;
         }
 
-        if (segment.type === 'term' && segment.definition) {
+        if (segment.type === 'term' && segment.definition && segment.category) {
           return (
             <Popover key={index}>
               <PopoverTrigger asChild>
-                <span className="underline decoration-dotted decoration-blue-400 cursor-help hover:decoration-blue-600 transition-colors">
+                <span className={getCategoryClasses(segment.category)}>
                   {segment.text}
                 </span>
               </PopoverTrigger>
-              <PopoverContent className="w-80" side="top">
+              <PopoverContent
+                className="w-80 z-50"
+                side="top"
+                align="center"
+                sideOffset={5}
+                avoidCollisions={true}
+              >
                 <div className="space-y-2">
-                  <h4 className="font-semibold text-sm text-slate-900">
+                  <h4 className="font-semibold text-sm text-slate-900 capitalize">
                     {segment.text}
+                    <span className="ml-2 text-xs font-normal text-slate-500">
+                      ({segment.category})
+                    </span>
                   </h4>
                   <p className="text-sm text-slate-600 leading-relaxed">
                     {segment.definition}
