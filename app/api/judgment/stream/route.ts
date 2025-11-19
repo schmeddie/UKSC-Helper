@@ -40,8 +40,9 @@ function extractRawText(body: any): string {
 
 /**
  * Split text into chunks at paragraph boundaries
+ * If a paragraph is too large, split it by sentences or characters
  */
-function chunkText(text: string, maxChunkSize: number = 25000): string[] {
+function chunkText(text: string, maxChunkSize: number = 15000): string[] {
   if (text.length <= maxChunkSize) {
     return [text];
   }
@@ -50,7 +51,30 @@ function chunkText(text: string, maxChunkSize: number = 25000): string[] {
   const paragraphs = text.split(/\n\n+/);
   let currentChunk = '';
 
-  for (const paragraph of paragraphs) {
+  for (let paragraph of paragraphs) {
+    // If single paragraph is too large, split it by sentences
+    if (paragraph.length > maxChunkSize) {
+      console.log(`  ⚠️  Large paragraph detected (${paragraph.length} chars), splitting by sentences`);
+
+      // Push current chunk first
+      if (currentChunk) {
+        chunks.push(currentChunk);
+        currentChunk = '';
+      }
+
+      // Split large paragraph by sentences
+      const sentences = paragraph.match(/[^.!?]+[.!?]+/g) || [paragraph];
+      for (const sentence of sentences) {
+        if (currentChunk.length + sentence.length > maxChunkSize && currentChunk) {
+          chunks.push(currentChunk);
+          currentChunk = sentence;
+        } else {
+          currentChunk += sentence;
+        }
+      }
+      continue;
+    }
+
     const testChunk = currentChunk + (currentChunk ? '\n\n' : '') + paragraph;
 
     if (testChunk.length > maxChunkSize && currentChunk) {
@@ -121,7 +145,7 @@ OUTPUT: JSON array only, no wrapper object
         { role: 'user', content: chunk },
       ],
       response_format: { type: 'json_object' },
-      max_tokens: 16000,
+      max_tokens: 8000,
     }),
   });
 
