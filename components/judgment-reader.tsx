@@ -101,15 +101,20 @@ export function JudgmentReader({ uri, onCitationClick, onJudgmentLoad }: Judgmen
         const data = JSON.parse(event.data);
 
         if (data.type === 'meta') {
+          console.log(`📊 Stream meta: ${data.totalChunks} chunks`);
           setStreamProgress({ current: 0, total: data.totalChunks });
         } else if (data.type === 'block') {
+          console.log(`📝 Received block: [${data.block.type}] ${data.block.text.substring(0, 60)}...`);
           setStreamingBlocks((prev) => [...prev, data.block]);
         } else if (data.type === 'chunk_complete') {
+          console.log(`✓ Chunk ${data.index}/${data.total} complete`);
           setStreamProgress({ current: data.index, total: data.total });
         } else if (data.type === 'complete') {
+          console.log('✓ Stream complete');
           setIsStreaming(false);
           eventSource.close();
         } else if (data.type === 'error') {
+          console.error('❌ Stream error:', data.message);
           setStreamError(data.message);
           setIsStreaming(false);
           eventSource.close();

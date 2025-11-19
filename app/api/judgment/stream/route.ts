@@ -151,7 +151,20 @@ OUTPUT: JSON array only
       blocks = parsed.blocks;
     }
 
-    console.log(`[Chunk ${chunkIndex + 1}] ✅ Received ${blocks.length} blocks`);
+    // Count block types for debugging
+    const typeCounts = blocks.reduce((acc, b) => {
+      acc[b.type] = (acc[b.type] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+
+    console.log(`[Chunk ${chunkIndex + 1}] ✅ Received ${blocks.length} blocks:`, typeCounts);
+
+    // Log first few blocks to verify structure
+    console.log(`[Chunk ${chunkIndex + 1}] First 3 blocks:`);
+    blocks.slice(0, 3).forEach((b, i) => {
+      console.log(`  ${i + 1}. [${b.type}] ${b.text.substring(0, 80)}...`);
+    });
+
     return blocks;
   } catch (error) {
     console.error(`[Chunk ${chunkIndex + 1}] Error:`, error);
@@ -257,17 +270,23 @@ export async function GET(request: NextRequest) {
           const blocks = await structureChunk(chunks[i], i, chunks.length, apiKey);
 
           // Stream each block to client
+          let sentCount = 0;
           for (const block of blocks) {
             if (block.type && block.text) {
               const eventData = JSON.stringify({ type: 'block', block });
               controller.enqueue(encoder.encode(`data: ${eventData}\n\n`));
-              console.log(`Sent block: ${block.type} - ${block.text.substring(0, 50)}...`);
+              sentCount++;
+              // Only log first 5 and last block to avoid spam
+              if (sentCount <= 5 || sentCount === blocks.length) {
+                console.log(`  → Sent block #${sentCount}: [${block.type}] ${block.text.substring(0, 60)}...`);
+              }
             }
           }
+          console.log(`  → Sent ${sentCount} blocks to client`);
 
           // Send chunk completion
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'chunk_complete', index: i + 1, total: chunks.length })}\n\n`));
-          console.log(`Chunk ${i + 1}/${chunks.length} complete`);
+          console.log(`✓ Chunk ${i + 1}/${chunks.length} complete`);
         }
 
         // Send completion
