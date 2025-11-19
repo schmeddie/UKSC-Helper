@@ -31,7 +31,7 @@ function StructuredBlock({ block, onCitationClick }: StructuredBlockProps) {
   switch (block.type) {
     case 'h2':
       return (
-        <h2 className={`${baseClasses} text-3xl font-bold text-oxford mt-12 mb-6 pb-3 border-b-3 border-gold uppercase tracking-wide`}>
+        <h2 className={`${baseClasses} text-3xl font-bold text-oxford mt-12 mb-6 pb-3 border-b-4 border-gold uppercase tracking-wide`}>
           <TextHighlighter content={block.text} onCitationClick={onCitationClick} />
         </h2>
       );
@@ -245,7 +245,7 @@ export function JudgmentReader({ uri, onCitationClick, onJudgmentLoad }: Judgmen
             <div className="mb-8 p-4 bg-blue-50 border border-blue-200 rounded-lg">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm text-blue-700 font-medium">
-                  Structuring judgment...
+                  Structuring judgment... ({streamingBlocks.length} blocks received)
                 </span>
                 <span className="text-xs text-blue-600">
                   Chunk {streamProgress.current} of {streamProgress.total}
@@ -264,6 +264,15 @@ export function JudgmentReader({ uri, onCitationClick, onJudgmentLoad }: Judgmen
           {streamError && (
             <div className="mb-8 p-4 bg-red-50 border border-red-200 rounded-lg">
               <p className="text-sm text-red-700">Streaming error: {streamError}</p>
+            </div>
+          )}
+
+          {/* Debug Info */}
+          {(streamingBlocks.length > 0 || isStreaming) && (
+            <div className="mb-4 p-3 bg-slate-100 border border-slate-300 rounded text-xs font-mono">
+              <div>Streaming: {isStreaming ? 'YES' : 'NO'}</div>
+              <div>Blocks received: {streamingBlocks.length}</div>
+              <div>Rendering: {streamingBlocks.length > 0 ? 'STRUCTURED BLOCKS' : 'WAITING...'}</div>
             </div>
           )}
 

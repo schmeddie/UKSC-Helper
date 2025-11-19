@@ -79,20 +79,30 @@ async function structureChunk(
 ): Promise<ContentBlock[]> {
   const systemPrompt = `You are a Legal Document Formatter for UK Supreme Court judgments. Transform raw text into structured JSON.
 
-IDENTIFY THESE TYPES:
-- "h2": Major sections (Introduction, Background, LORD REED, Part I, II, etc.)
-- "h3": Subsections (The legislative framework, Analysis, etc.)
-- "p": Regular paragraphs
-- "quote": Quoted legislation or case excerpts
+CRITICAL: COMPLETELY REMOVE these sections (do NOT include them in output):
+- Table of contents (usually first 20-50 lines listing section titles)
+- Lists of section headings without content
+- Page numbers, headers, footers
+- Metadata like case numbers at the top
 
-RULES:
-1. Preserve ALL text - no summarization
-2. Remove table of contents, page numbers, headers/footers
-3. Clean judge names: "Lord Reed:" → "LORD REED" (h2)
-4. Identify sections: "Introduction", "Part I" → h2
-5. Subsection headers → h3
+EXAMPLE OF WHAT TO REMOVE:
+Input: "Introduction\nFactual background\nStatutory provisions\nConclusion\n\n1. This appeal concerns..."
+Output: Start from "1. This appeal concerns..." (the actual content)
 
-OUTPUT: JSON array only
+IDENTIFY THESE TYPES for the REMAINING content:
+- "h2": Major sections - Judge names (LORD REED, LADY ROSE), major parts (INTRODUCTION, BACKGROUND, JUDGMENT, Part I)
+- "h3": Subsections within major sections (The legislative framework, Analysis, Conclusion)
+- "p": Regular paragraphs of text
+- "quote": Quoted legislation, case law excerpts, or indented quotations
+
+FORMATTING RULES:
+1. Judge names in ALL CAPS: "Lord Reed:" → "LORD REED" (h2)
+2. Detect judge opinions: "LORD REED: (with whom..." → "LORD REED" (h2), opinion text (p)
+3. Major sections in title case: "Introduction" → "INTRODUCTION" (h2)
+4. Preserve ALL substantive text - no summarization
+5. Combine fragmented text into complete paragraphs
+
+OUTPUT FORMAT: JSON array only, no other text
 [{ "type": "h2"|"h3"|"p"|"quote", "text": "..." }, ...]`;
 
   console.log(`[Chunk ${chunkIndex + 1}/${totalChunks}] Calling OpenRouter (${chunk.length} chars)...`);
