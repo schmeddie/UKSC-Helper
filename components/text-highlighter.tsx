@@ -141,11 +141,13 @@ export function TextHighlighter({ content, onCitationClick }: TextHighlighterPro
                 </span>
               </PopoverTrigger>
               <PopoverContent
-                className="w-80 z-50"
+                className="w-80 z-[100] bg-white border-2 border-slate-300 shadow-2xl p-4 rounded-lg"
                 side="top"
-                align="center"
-                sideOffset={5}
+                align="start"
+                sideOffset={15}
+                alignOffset={-40}
                 avoidCollisions={true}
+                collisionPadding={20}
               >
                 <div className="space-y-2">
                   <h4 className="font-semibold text-sm text-slate-900 capitalize">
