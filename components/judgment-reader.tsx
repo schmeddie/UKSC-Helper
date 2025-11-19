@@ -99,11 +99,18 @@ export function JudgmentReader({ uri, onCitationClick, onJudgmentLoad }: Judgmen
         const response = await fetch(`/api/judgment/stream?citation=${encodeURIComponent(citation)}`);
 
         if (!response.ok) {
-          throw new Error('Failed to format judgment');
+          const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+          console.error('❌ Server error:', errorData);
+          throw new Error(errorData.error || `Server error: ${response.status}`);
         }
 
         const data = await response.json();
         console.log('✅ Received formatted blocks:', data.blocks.length);
+
+        if (!data.blocks || !Array.isArray(data.blocks)) {
+          throw new Error('Invalid response format: missing blocks array');
+        }
+
         setFormattedBlocks(data.blocks);
       } catch (err) {
         console.error('❌ Format error:', err);

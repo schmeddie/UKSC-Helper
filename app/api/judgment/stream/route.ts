@@ -191,7 +191,7 @@ async function formatWithAI(text: string, apiKey: string): Promise<ContentBlock[
   console.log(`🤖 Formatting ${text.length} chars...`);
 
   // Split into chunks if needed
-  const chunks = chunkText(text, 25000);
+  const chunks = chunkText(text, 15000);
   console.log(`📦 Split into ${chunks.length} chunk(s)`);
 
   // Process all chunks
@@ -289,12 +289,14 @@ export async function GET(request: NextRequest) {
     // Format with AI
     const blocks = await formatWithAI(rawText, apiKey);
 
-    console.log(`✅ Formatted successfully\n`);
+    console.log(`✅ Formatted successfully, returning ${blocks.length} blocks to client\n`);
 
-    return NextResponse.json({ blocks });
+    const response = { blocks };
+    return NextResponse.json(response);
   } catch (error) {
     console.error('❌ Format error:', error);
     const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+    console.error(`Returning error response: ${errorMsg}`);
     return NextResponse.json({ error: errorMsg }, { status: 500 });
   }
 }
