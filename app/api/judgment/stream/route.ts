@@ -69,56 +69,33 @@ function chunkText(text: string, maxChunkSize: number = 30000): string[] {
 }
 
 /**
- * Process a single chunk with streaming and send blocks as they're generated
+ * Call OpenRouter to structure a chunk (non-streaming for reliability)
  */
-async function processChunkStreaming(
+async function structureChunk(
   chunk: string,
   chunkIndex: number,
   totalChunks: number,
-  apiKey: string,
-  controller: ReadableStreamDefaultController,
-  encoder: TextEncoder
-): Promise<void> {
-  const systemPrompt = `You are a sophisticated Legal Document Formatter for UK Supreme Court judgments. Your job is to transform raw, messy judgment text into a beautifully structured, hierarchical format.
+  apiKey: string
+): Promise<ContentBlock[]> {
+  const systemPrompt = `You are a Legal Document Formatter for UK Supreme Court judgments. Transform raw text into structured JSON.
 
-STRUCTURAL IDENTIFICATION:
-1. Identify and classify these section types in order of hierarchy:
-   - "h2": Major structural sections (e.g., "Introduction", "Background", "The Appeal", "Discussion", "Conclusion", numbered parts like "I. Introduction", "II. The Facts")
-   - "h2": Judge names when they introduce their opinion (e.g., "LORD REED:", "LADY HALE:")
-   - "h3": Subsections and topic headers (e.g., "The legislative framework", "The first ground of appeal", "Analysis")
-   - "p": Regular paragraphs of judgment text
-   - "quote": Quoted legislation, case law excerpts, or indented legal text
+IDENTIFY THESE TYPES:
+- "h2": Major sections (Introduction, Background, LORD REED, Part I, II, etc.)
+- "h3": Subsections (The legislative framework, Analysis, etc.)
+- "p": Regular paragraphs
+- "quote": Quoted legislation or case excerpts
 
-2. FORMATTING RULES:
-   - Preserve ALL text - no summarization
-   - Remove table of contents, page numbers, running headers/footers
-   - Clean up judge names: "Lord Reed:" → "LORD REED" (h2)
-   - Identify structural divisions: "Introduction", "Part I", "The Background", etc. → h2
-   - Subsection headers like "The legislative framework" → h3
-   - Regular narrative paragraphs → p
-   - Indented quotes from statutes or cases → quote
+RULES:
+1. Preserve ALL text - no summarization
+2. Remove table of contents, page numbers, headers/footers
+3. Clean judge names: "Lord Reed:" → "LORD REED" (h2)
+4. Identify sections: "Introduction", "Part I" → h2
+5. Subsection headers → h3
 
-3. RECOGNITION PATTERNS:
-   - Lines in ALL CAPS or Title Case followed by content = likely h2
-   - Lines ending with colons that introduce sections = likely h3
-   - Text introduced by "Lord/Lady [Name]:" = h2 (judgment author)
-   - Numbered sections (I., II., 1., 2., etc.) at start of line = h2 or h3
-   - Indented or quoted statutory text = quote
+OUTPUT: JSON array only
+[{ "type": "h2"|"h3"|"p"|"quote", "text": "..." }, ...]`;
 
-4. OUTPUT FORMAT:
-   This is chunk ${chunkIndex + 1} of ${totalChunks}.
-   Return ONLY a JSON array: [{ "type": "h2"|"h3"|"p"|"quote", "text": "cleaned text" }, ...]
-
-Example:
-[
-  { "type": "h2", "text": "LORD REED" },
-  { "type": "h2", "text": "Introduction" },
-  { "type": "p", "text": "This appeal concerns the interpretation of..." },
-  { "type": "h3", "text": "The legislative framework" },
-  { "type": "p", "text": "Section 1 of the Act provides..." }
-]`;
-
-  console.log(`Processing chunk ${chunkIndex + 1}/${totalChunks}, length: ${chunk.length} chars`);
+  console.log(`[Chunk ${chunkIndex + 1}/${totalChunks}] Calling OpenRouter (${chunk.length} chars)...`);
 
   try {
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -137,115 +114,48 @@ Example:
         ],
         response_format: { type: 'json_object' },
         max_tokens: 16000,
-        stream: true, // Enable streaming
       }),
     });
 
     if (!response.ok) {
-      console.error(`Chunk ${chunkIndex + 1} API error:`, response.status);
-      return;
+      const errorText = await response.text();
+      console.error(`[Chunk ${chunkIndex + 1}] API error ${response.status}: ${errorText}`);
+      return [];
     }
 
-    if (!response.body) {
-      console.error(`Chunk ${chunkIndex + 1}: No response body`);
-      return;
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content;
+
+    if (!content) {
+      console.error(`[Chunk ${chunkIndex + 1}] No content in response`);
+      return [];
     }
 
-    // Read the streaming response
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let accumulatedJson = '';
-    let sentBlockCount = 0; // Track how many blocks we've already sent
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const data = line.slice(6);
-          if (data === '[DONE]') continue;
-
-          try {
-            const parsed = JSON.parse(data);
-            const content = parsed.choices?.[0]?.delta?.content;
-
-            if (content) {
-              accumulatedJson += content;
-
-              // Try to parse as a complete JSON array or object
-              try {
-                let parsedContent: any;
-                const trimmed = accumulatedJson.trim();
-
-                // Try parsing as array first
-                if (trimmed.startsWith('[')) {
-                  parsedContent = JSON.parse(trimmed);
-                } else if (trimmed.startsWith('{')) {
-                  const fullJson = JSON.parse(trimmed);
-                  parsedContent = fullJson.content || fullJson;
-                }
-
-                // If we successfully parsed and got an array
-                if (Array.isArray(parsedContent)) {
-                  // Send any new blocks we haven't sent yet
-                  for (let i = sentBlockCount; i < parsedContent.length; i++) {
-                    const block = parsedContent[i];
-                    if (block.type && block.text) {
-                      console.log(`Streaming block ${sentBlockCount + 1}: ${block.type} - ${block.text.substring(0, 50)}...`);
-                      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'block', block })}\n\n`));
-                      sentBlockCount++;
-                    }
-                  }
-                }
-              } catch (parseError) {
-                // JSON not complete yet, continue accumulating
-              }
-            }
-          } catch (e) {
-            // Invalid JSON in stream, continue
-          }
-        }
-      }
+    // Parse the JSON response
+    let parsed: any;
+    try {
+      parsed = JSON.parse(content);
+    } catch (parseError) {
+      console.error(`[Chunk ${chunkIndex + 1}] JSON parse error:`, parseError);
+      console.error('Response preview:', content.substring(0, 500));
+      return [];
     }
 
-    // Parse any remaining content and send unsent blocks
-    if (accumulatedJson) {
-      try {
-        let parsed: any;
-        const trimmed = accumulatedJson.trim();
-
-        if (trimmed.startsWith('[')) {
-          parsed = JSON.parse(trimmed);
-        } else if (trimmed.startsWith('{')) {
-          const fullJson = JSON.parse(trimmed);
-          parsed = fullJson.content || fullJson;
-        }
-
-        if (Array.isArray(parsed)) {
-          for (let i = sentBlockCount; i < parsed.length; i++) {
-            const block = parsed[i];
-            if (block.type && block.text) {
-              console.log(`Final block ${i + 1}: ${block.type} - ${block.text.substring(0, 50)}...`);
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'block', block })}\n\n`));
-              sentBlockCount++;
-            }
-          }
-        }
-
-        console.log(`✅ Chunk ${chunkIndex + 1}/${totalChunks} complete: sent ${sentBlockCount} blocks`);
-      } catch (e) {
-        console.error(`Chunk ${chunkIndex + 1}: Error parsing final JSON:`, e);
-        console.error('Accumulated JSON preview:', accumulatedJson.substring(0, 200));
-      }
+    // Handle both array and object formats
+    let blocks: ContentBlock[] = [];
+    if (Array.isArray(parsed)) {
+      blocks = parsed;
+    } else if (parsed.content && Array.isArray(parsed.content)) {
+      blocks = parsed.content;
+    } else if (parsed.blocks && Array.isArray(parsed.blocks)) {
+      blocks = parsed.blocks;
     }
+
+    console.log(`[Chunk ${chunkIndex + 1}] ✅ Received ${blocks.length} blocks`);
+    return blocks;
   } catch (error) {
-    console.error(`Chunk ${chunkIndex + 1} streaming error:`, error);
+    console.error(`[Chunk ${chunkIndex + 1}] Error:`, error);
+    return [];
   }
 }
 
@@ -262,8 +172,10 @@ export async function GET(request: NextRequest) {
 
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
-    return new Response('API key not configured', { status: 500 });
+    return new Response('OPENROUTER_API_KEY not configured', { status: 500 });
   }
+
+  console.log(`\n=== STREAMING REQUEST: ${citation} ===`);
 
   // Create a ReadableStream for streaming response
   const encoder = new TextEncoder();
@@ -273,7 +185,7 @@ export async function GET(request: NextRequest) {
         // Parse citation
         const parts = citation.split('/');
         if (parts.length !== 3) {
-          controller.enqueue(encoder.encode('data: {"error": "Invalid citation format"}\n\n'));
+          controller.enqueue(encoder.encode('data: {"type":"error","message":"Invalid citation format"}\n\n'));
           controller.close();
           return;
         }
@@ -289,6 +201,7 @@ export async function GET(request: NextRequest) {
         let xmlDoc: any = null;
         for (const url of urlsToTry) {
           try {
+            console.log(`Trying: ${url}`);
             const resp = await fetch(url, {
               headers: {
                 'User-Agent': 'Caselaw-Explorer/1.0 (Educational)',
@@ -306,15 +219,17 @@ export async function GET(request: NextRequest) {
                 trimValues: true,
               });
               xmlDoc = parser.parse(rawText);
+              console.log('✅ XML fetched and parsed');
               break;
             }
           } catch (error) {
+            console.error(`Failed to fetch ${url}:`, error);
             continue;
           }
         }
 
         if (!xmlDoc) {
-          controller.enqueue(encoder.encode('data: {"error": "Failed to fetch judgment"}\n\n'));
+          controller.enqueue(encoder.encode('data: {"type":"error","message":"Failed to fetch judgment XML"}\n\n'));
           controller.close();
           return;
         }
@@ -322,31 +237,47 @@ export async function GET(request: NextRequest) {
         // Extract raw text
         const body = xmlDoc?.akomaNtoso?.judgment?.judgmentBody || xmlDoc?.akomaNtoso?.judgment?.mainBody;
         if (!body) {
-          controller.enqueue(encoder.encode('data: {"error": "No judgment body found"}\n\n'));
+          controller.enqueue(encoder.encode('data: {"type":"error","message":"No judgment body found in XML"}\n\n'));
           controller.close();
           return;
         }
 
         const rawText = extractRawText(body);
-        const chunks = chunkText(rawText, 30000);
+        console.log(`Extracted ${rawText.length} characters of raw text`);
 
-        // Send metadata first
+        const chunks = chunkText(rawText, 30000);
+        console.log(`Split into ${chunks.length} chunks`);
+
+        // Send metadata
         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'meta', totalChunks: chunks.length })}\n\n`));
 
-        // Process chunks sequentially with streaming
+        // Process each chunk sequentially and stream blocks as they come
         for (let i = 0; i < chunks.length; i++) {
-          await processChunkStreaming(chunks[i], i, chunks.length, apiKey, controller, encoder);
+          console.log(`\n--- Processing chunk ${i + 1}/${chunks.length} ---`);
+          const blocks = await structureChunk(chunks[i], i, chunks.length, apiKey);
 
-          // Send chunk completion event
+          // Stream each block to client
+          for (const block of blocks) {
+            if (block.type && block.text) {
+              const eventData = JSON.stringify({ type: 'block', block });
+              controller.enqueue(encoder.encode(`data: ${eventData}\n\n`));
+              console.log(`Sent block: ${block.type} - ${block.text.substring(0, 50)}...`);
+            }
+          }
+
+          // Send chunk completion
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'chunk_complete', index: i + 1, total: chunks.length })}\n\n`));
+          console.log(`Chunk ${i + 1}/${chunks.length} complete`);
         }
 
-        // Send completion event
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'complete' })}\n\n`));
+        // Send completion
+        controller.enqueue(encoder.encode('data: {"type":"complete"}\n\n'));
+        console.log('=== STREAMING COMPLETE ===\n');
         controller.close();
       } catch (error) {
         console.error('Streaming error:', error);
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'error', message: error instanceof Error ? error.message : 'Unknown error' })}\n\n`));
+        const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'error', message: errorMsg })}\n\n`));
         controller.close();
       }
     },
