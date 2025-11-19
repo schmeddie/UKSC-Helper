@@ -1,6 +1,17 @@
+export type LegalTermCategory =
+  | 'latin'
+  | 'procedural'
+  | 'constitutional'
+  | 'tort'
+  | 'contract'
+  | 'criminal'
+  | 'evidence'
+  | 'property';
+
 export interface LegalTerm {
   term: string;
   definition: string;
+  category: LegalTermCategory;
 }
 
 export interface JudgmentMetadata {

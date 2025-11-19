@@ -3,11 +3,14 @@
  * Used to find all dictionary terms in judgment text in a single pass
  */
 
+import { LegalTermCategory } from './types';
+
 class TrieNode {
   children: Map<string, TrieNode> = new Map();
   isEndOfWord: boolean = false;
   definition: string | null = null;
   originalTerm: string | null = null;
+  category: LegalTermCategory | null = null;
 }
 
 export class Trie {
@@ -16,7 +19,7 @@ export class Trie {
   /**
    * Insert a term and its definition into the trie
    */
-  insert(term: string, definition: string): void {
+  insert(term: string, definition: string, category: LegalTermCategory): void {
     const normalizedTerm = term.toLowerCase();
     let node = this.root;
 
@@ -30,21 +33,24 @@ export class Trie {
     node.isEndOfWord = true;
     node.definition = definition;
     node.originalTerm = term;
+    node.category = category;
   }
 
   /**
    * Search for all matches in the given text
-   * Returns array of {term, definition, start, end} objects
+   * Returns array of {term, definition, category, start, end} objects
    */
   findAllMatches(text: string): Array<{
     term: string;
     definition: string;
+    category: LegalTermCategory;
     start: number;
     end: number;
   }> {
     const matches: Array<{
       term: string;
       definition: string;
+      category: LegalTermCategory;
       start: number;
       end: number;
     }> = [];
@@ -61,6 +67,7 @@ export class Trie {
       let lastMatch: {
         term: string;
         definition: string;
+        category: LegalTermCategory;
         end: number;
       } | null = null;
 
@@ -92,6 +99,7 @@ export class Trie {
             lastMatch = {
               term: node.originalTerm!,
               definition: node.definition!,
+              category: node.category!,
               end: j,
             };
           }
@@ -105,6 +113,7 @@ export class Trie {
           matches.push({
             term: lastMatch.term,
             definition: lastMatch.definition,
+            category: lastMatch.category,
             start: i,
             end: lastMatch.end,
           });

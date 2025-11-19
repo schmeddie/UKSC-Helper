@@ -475,11 +475,13 @@ export async function GET(request: NextRequest) {
           const persons = Array.isArray(tlcPersons) ? tlcPersons : [tlcPersons];
 
           // Extract all persons with showAs attribute (these are typically judges)
+          // Skip first two names as they are always claimant and defendant
           judges = persons
             .filter((person: any) => person['@_showAs'])
             .map((person: any) => person['@_showAs'])
+            .slice(2) // Skip first two entries (claimant and defendant)
             .filter((name: string) => {
-              // Filter out non-judge roles (common parties)
+              // Additional filtering for non-judge roles
               const lowerName = name.toLowerCase();
               return !lowerName.includes('appellant') &&
                      !lowerName.includes('respondent') &&

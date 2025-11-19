@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { XMLParser } from 'fast-xml-parser';
+import { getCachedJudgment, setCachedJudgment } from '@/lib/cache';
 
 interface ContentBlock {
   type: 'h2' | 'h3' | 'p' | 'quote';
@@ -230,6 +231,15 @@ export async function GET(request: NextRequest) {
   console.log(`\n📋 Format request: ${citation}`);
 
   try {
+    // Check cache first
+    const cachedBlocks = getCachedJudgment(citation);
+    if (cachedBlocks) {
+      console.log(`✅ Returning cached judgment (${cachedBlocks.length} blocks)\n`);
+      return NextResponse.json({ blocks: cachedBlocks, cached: true });
+    }
+
+    console.log('❌ Cache MISS, fetching and formatting...');
+
     // Parse citation
     const parts = citation.split('/');
     if (parts.length !== 3) {
@@ -289,9 +299,12 @@ export async function GET(request: NextRequest) {
     // Format with AI
     const blocks = await formatWithAI(rawText, apiKey);
 
+    // Save to cache for future requests
+    setCachedJudgment(citation, blocks);
+
     console.log(`✅ Formatted successfully, returning ${blocks.length} blocks to client\n`);
 
-    const response = { blocks };
+    const response = { blocks, cached: false };
     return NextResponse.json(response);
   } catch (error) {
     console.error('❌ Format error:', error);
