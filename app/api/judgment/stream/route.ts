@@ -1,4 +1,4 @@
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { XMLParser } from 'fast-xml-parser';
 
 interface ContentBlock {
@@ -39,284 +39,178 @@ function extractRawText(body: any): string {
 }
 
 /**
- * Split text into chunks at paragraph boundaries
+ * Format judgment text with AI
+ * Simple synchronous call - text in, blocks out
  */
-function chunkText(text: string, maxChunkSize: number = 30000): string[] {
-  if (text.length <= maxChunkSize) {
-    return [text];
-  }
+async function formatWithAI(text: string, apiKey: string): Promise<ContentBlock[]> {
+  const systemPrompt = `You are a Legal Document Formatter for UK Supreme Court judgments.
 
-  const chunks: string[] = [];
-  const paragraphs = text.split(/\n\n+/);
-  let currentChunk = '';
+YOUR TASK: Transform raw legal text into clean, structured JSON blocks.
 
-  for (const paragraph of paragraphs) {
-    const testChunk = currentChunk + (currentChunk ? '\n\n' : '') + paragraph;
+CRITICAL - REMOVE COMPLETELY (do NOT include in output):
+1. Table of contents at the start (lists of section titles with no content)
+2. Page numbers, headers, footers
+3. Metadata blocks (case numbers, dates at top)
+4. Any standalone lists of headings before the main text starts
 
-    if (testChunk.length > maxChunkSize && currentChunk) {
-      chunks.push(currentChunk);
-      currentChunk = paragraph;
-    } else {
-      currentChunk = testChunk;
-    }
-  }
+EXAMPLE:
+BAD (remove this): "Introduction\\nBackground\\nStatutory provisions\\nConclusion\\n\\n"
+GOOD (start here): "1. This appeal concerns the interpretation..."
 
-  if (currentChunk) {
-    chunks.push(currentChunk);
-  }
-
-  return chunks;
-}
-
-/**
- * Call OpenRouter to structure a chunk (non-streaming for reliability)
- */
-async function structureChunk(
-  chunk: string,
-  chunkIndex: number,
-  totalChunks: number,
-  apiKey: string
-): Promise<ContentBlock[]> {
-  const systemPrompt = `You are a Legal Document Formatter for UK Supreme Court judgments. Transform raw text into structured JSON.
-
-CRITICAL: COMPLETELY REMOVE these sections (do NOT include them in output):
-- Table of contents (usually first 20-50 lines listing section titles)
-- Lists of section headings without content
-- Page numbers, headers, footers
-- Metadata like case numbers at the top
-
-EXAMPLE OF WHAT TO REMOVE:
-Input: "Introduction\nFactual background\nStatutory provisions\nConclusion\n\n1. This appeal concerns..."
-Output: Start from "1. This appeal concerns..." (the actual content)
-
-IDENTIFY THESE TYPES for the REMAINING content:
-- "h2": Major sections - Judge names (LORD REED, LADY ROSE), major parts (INTRODUCTION, BACKGROUND, JUDGMENT, Part I)
-- "h3": Subsections within major sections (The legislative framework, Analysis, Conclusion)
-- "p": Regular paragraphs of text
-- "quote": Quoted legislation, case law excerpts, or indented quotations
+IDENTIFY THESE BLOCK TYPES:
+- h2: Major section headers (LORD REED, INTRODUCTION, JUDGMENT, Part I)
+- h3: Subsection headers (The legislative framework, Analysis)
+- p: Regular paragraph text
+- quote: Indented quotes from legislation or cases
 
 FORMATTING RULES:
-1. Judge names in ALL CAPS: "Lord Reed:" → "LORD REED" (h2)
-2. Detect judge opinions: "LORD REED: (with whom..." → "LORD REED" (h2), opinion text (p)
-3. Major sections in title case: "Introduction" → "INTRODUCTION" (h2)
-4. Preserve ALL substantive text - no summarization
-5. Combine fragmented text into complete paragraphs
+1. Convert all judge names to uppercase: "Lord Reed" → "LORD REED"
+2. Major sections to uppercase: "Introduction" → "INTRODUCTION"
+3. Preserve ALL paragraph text - no summarization
+4. Combine sentence fragments into complete paragraphs
+5. Remove duplicate text
 
-OUTPUT FORMAT: JSON array only, no other text
-[{ "type": "h2"|"h3"|"p"|"quote", "text": "..." }, ...]`;
+OUTPUT: JSON array only
+[{"type":"h2","text":"INTRODUCTION"},{"type":"p","text":"This appeal concerns..."}]`;
 
-  console.log(`[Chunk ${chunkIndex + 1}/${totalChunks}] Calling OpenRouter (${chunk.length} chars)...`);
+  console.log(`🤖 Calling AI to format ${text.length} chars...`);
 
-  try {
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://uksc-helper.vercel.app',
-        'X-Title': 'UKSC Judgment Reader',
-      },
-      body: JSON.stringify({
-        model: 'google/gemini-2.0-flash-001',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: chunk },
-        ],
-        response_format: { type: 'json_object' },
-        max_tokens: 16000,
-      }),
-    });
+  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'google/gemini-2.0-flash-001',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: text },
+      ],
+      response_format: { type: 'json_object' },
+      max_tokens: 16000,
+    }),
+  });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`[Chunk ${chunkIndex + 1}] API error ${response.status}: ${errorText}`);
-      return [];
-    }
-
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content;
-
-    if (!content) {
-      console.error(`[Chunk ${chunkIndex + 1}] No content in response`);
-      return [];
-    }
-
-    // Parse the JSON response
-    let parsed: any;
-    try {
-      parsed = JSON.parse(content);
-    } catch (parseError) {
-      console.error(`[Chunk ${chunkIndex + 1}] JSON parse error:`, parseError);
-      console.error('Response preview:', content.substring(0, 500));
-      return [];
-    }
-
-    // Handle both array and object formats
-    let blocks: ContentBlock[] = [];
-    if (Array.isArray(parsed)) {
-      blocks = parsed;
-    } else if (parsed.content && Array.isArray(parsed.content)) {
-      blocks = parsed.content;
-    } else if (parsed.blocks && Array.isArray(parsed.blocks)) {
-      blocks = parsed.blocks;
-    }
-
-    // Count block types for debugging
-    const typeCounts = blocks.reduce((acc, b) => {
-      acc[b.type] = (acc[b.type] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
-
-    console.log(`[Chunk ${chunkIndex + 1}] ✅ Received ${blocks.length} blocks:`, typeCounts);
-
-    // Log first few blocks to verify structure
-    console.log(`[Chunk ${chunkIndex + 1}] First 3 blocks:`);
-    blocks.slice(0, 3).forEach((b, i) => {
-      console.log(`  ${i + 1}. [${b.type}] ${b.text.substring(0, 80)}...`);
-    });
-
-    return blocks;
-  } catch (error) {
-    console.error(`[Chunk ${chunkIndex + 1}] Error:`, error);
-    return [];
+  if (!response.ok) {
+    throw new Error(`AI API error: ${response.status}`);
   }
+
+  const data = await response.json();
+  const content = data.choices?.[0]?.message?.content;
+
+  if (!content) {
+    throw new Error('No content in AI response');
+  }
+
+  const parsed = JSON.parse(content);
+
+  // Handle different response formats
+  let blocks: ContentBlock[] = [];
+  if (Array.isArray(parsed)) {
+    blocks = parsed;
+  } else if (parsed.content && Array.isArray(parsed.content)) {
+    blocks = parsed.content;
+  } else if (parsed.blocks && Array.isArray(parsed.blocks)) {
+    blocks = parsed.blocks;
+  }
+
+  console.log(`✅ AI returned ${blocks.length} blocks`);
+
+  // Log type distribution
+  const typeCounts = blocks.reduce((acc, b) => {
+    acc[b.type] = (acc[b.type] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+  console.log('Block types:', typeCounts);
+
+  return blocks;
 }
 
 /**
- * Streaming endpoint for judgment structuring
+ * Simple endpoint: GET judgment → format with AI → return JSON
  * GET /api/judgment/stream?citation=uksc/2019/41
  */
 export async function GET(request: NextRequest) {
   const citation = request.nextUrl.searchParams.get('citation');
 
   if (!citation) {
-    return new Response('Citation required', { status: 400 });
+    return NextResponse.json({ error: 'Citation required' }, { status: 400 });
   }
 
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
-    return new Response('OPENROUTER_API_KEY not configured', { status: 500 });
+    return NextResponse.json({ error: 'OPENROUTER_API_KEY not configured' }, { status: 500 });
   }
 
-  console.log(`\n=== STREAMING REQUEST: ${citation} ===`);
+  console.log(`\n📋 Format request: ${citation}`);
 
-  // Create a ReadableStream for streaming response
-  const encoder = new TextEncoder();
-  const stream = new ReadableStream({
-    async start(controller) {
+  try {
+    // Parse citation
+    const parts = citation.split('/');
+    if (parts.length !== 3) {
+      return NextResponse.json({ error: 'Invalid citation format' }, { status: 400 });
+    }
+
+    const [court, year, number] = parts;
+
+    // Fetch XML
+    const urlsToTry = [
+      `https://caselaw.nationalarchives.gov.uk/${court}/${year}/${number}/data.xml`,
+      `https://caselaw.nationalarchives.gov.uk/id/${court}/${year}/${number}/data.xml`,
+    ];
+
+    let xmlDoc: any = null;
+    for (const url of urlsToTry) {
       try {
-        // Parse citation
-        const parts = citation.split('/');
-        if (parts.length !== 3) {
-          controller.enqueue(encoder.encode('data: {"type":"error","message":"Invalid citation format"}\n\n'));
-          controller.close();
-          return;
+        console.log(`Fetching: ${url}`);
+        const resp = await fetch(url, {
+          headers: {
+            'User-Agent': 'Caselaw-Explorer/1.0 (Educational)',
+            'Accept': 'application/xml, text/xml, */*',
+          },
+        });
+
+        if (resp.ok) {
+          const rawText = await resp.text();
+          const parser = new XMLParser({
+            ignoreAttributes: false,
+            attributeNamePrefix: '@_',
+            textNodeName: '#text',
+            ignoreDeclaration: true,
+            trimValues: true,
+          });
+          xmlDoc = parser.parse(rawText);
+          console.log('✅ XML fetched');
+          break;
         }
-
-        const [court, year, number] = parts;
-
-        // Fetch XML
-        const urlsToTry = [
-          `https://caselaw.nationalarchives.gov.uk/${court}/${year}/${number}/data.xml`,
-          `https://caselaw.nationalarchives.gov.uk/id/${court}/${year}/${number}/data.xml`,
-        ];
-
-        let xmlDoc: any = null;
-        for (const url of urlsToTry) {
-          try {
-            console.log(`Trying: ${url}`);
-            const resp = await fetch(url, {
-              headers: {
-                'User-Agent': 'Caselaw-Explorer/1.0 (Educational)',
-                'Accept': 'application/xml, text/xml, */*',
-              },
-            });
-
-            if (resp.ok) {
-              const rawText = await resp.text();
-              const parser = new XMLParser({
-                ignoreAttributes: false,
-                attributeNamePrefix: '@_',
-                textNodeName: '#text',
-                ignoreDeclaration: true,
-                trimValues: true,
-              });
-              xmlDoc = parser.parse(rawText);
-              console.log('✅ XML fetched and parsed');
-              break;
-            }
-          } catch (error) {
-            console.error(`Failed to fetch ${url}:`, error);
-            continue;
-          }
-        }
-
-        if (!xmlDoc) {
-          controller.enqueue(encoder.encode('data: {"type":"error","message":"Failed to fetch judgment XML"}\n\n'));
-          controller.close();
-          return;
-        }
-
-        // Extract raw text
-        const body = xmlDoc?.akomaNtoso?.judgment?.judgmentBody || xmlDoc?.akomaNtoso?.judgment?.mainBody;
-        if (!body) {
-          controller.enqueue(encoder.encode('data: {"type":"error","message":"No judgment body found in XML"}\n\n'));
-          controller.close();
-          return;
-        }
-
-        const rawText = extractRawText(body);
-        console.log(`Extracted ${rawText.length} characters of raw text`);
-
-        const chunks = chunkText(rawText, 30000);
-        console.log(`Split into ${chunks.length} chunks`);
-
-        // Send metadata
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'meta', totalChunks: chunks.length })}\n\n`));
-
-        // Process each chunk sequentially and stream blocks as they come
-        for (let i = 0; i < chunks.length; i++) {
-          console.log(`\n--- Processing chunk ${i + 1}/${chunks.length} ---`);
-          const blocks = await structureChunk(chunks[i], i, chunks.length, apiKey);
-
-          // Stream each block to client
-          let sentCount = 0;
-          for (const block of blocks) {
-            if (block.type && block.text) {
-              const eventData = JSON.stringify({ type: 'block', block });
-              controller.enqueue(encoder.encode(`data: ${eventData}\n\n`));
-              sentCount++;
-              // Only log first 5 and last block to avoid spam
-              if (sentCount <= 5 || sentCount === blocks.length) {
-                console.log(`  → Sent block #${sentCount}: [${block.type}] ${block.text.substring(0, 60)}...`);
-              }
-            }
-          }
-          console.log(`  → Sent ${sentCount} blocks to client`);
-
-          // Send chunk completion
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'chunk_complete', index: i + 1, total: chunks.length })}\n\n`));
-          console.log(`✓ Chunk ${i + 1}/${chunks.length} complete`);
-        }
-
-        // Send completion
-        controller.enqueue(encoder.encode('data: {"type":"complete"}\n\n'));
-        console.log('=== STREAMING COMPLETE ===\n');
-        controller.close();
       } catch (error) {
-        console.error('Streaming error:', error);
-        const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'error', message: errorMsg })}\n\n`));
-        controller.close();
+        continue;
       }
-    },
-  });
+    }
 
-  return new Response(stream, {
-    headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
-    },
-  });
+    if (!xmlDoc) {
+      return NextResponse.json({ error: 'Failed to fetch judgment XML' }, { status: 404 });
+    }
+
+    // Extract raw text
+    const body = xmlDoc?.akomaNtoso?.judgment?.judgmentBody || xmlDoc?.akomaNtoso?.judgment?.mainBody;
+    if (!body) {
+      return NextResponse.json({ error: 'No judgment body found in XML' }, { status: 404 });
+    }
+
+    const rawText = extractRawText(body);
+    console.log(`Extracted ${rawText.length} chars`);
+
+    // Format with AI
+    const blocks = await formatWithAI(rawText, apiKey);
+
+    console.log(`✅ Formatted successfully\n`);
+
+    return NextResponse.json({ blocks });
+  } catch (error) {
+    console.error('❌ Format error:', error);
+    const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json({ error: errorMsg }, { status: 500 });
+  }
 }

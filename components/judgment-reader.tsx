@@ -67,10 +67,9 @@ function StructuredBlock({ block, onCitationClick }: StructuredBlockProps) {
 }
 
 export function JudgmentReader({ uri, onCitationClick, onJudgmentLoad }: JudgmentReaderProps) {
-  const [streamingBlocks, setStreamingBlocks] = React.useState<ContentBlock[]>([]);
-  const [isStreaming, setIsStreaming] = React.useState(false);
-  const [streamError, setStreamError] = React.useState<string | null>(null);
-  const [streamProgress, setStreamProgress] = React.useState({ current: 0, total: 0 });
+  const [formattedBlocks, setFormattedBlocks] = React.useState<ContentBlock[]>([]);
+  const [isFormatting, setIsFormatting] = React.useState(false);
+  const [formatError, setFormatError] = React.useState<string | null>(null);
 
   const { data: judgment, isLoading, error } = useQuery({
     queryKey: ['judgment', uri],
@@ -85,54 +84,36 @@ export function JudgmentReader({ uri, onCitationClick, onJudgmentLoad }: Judgmen
     }
   }, [judgment, onJudgmentLoad]);
 
-  // Start streaming when we have a URI and judgment metadata is loaded
+  // Format the judgment with AI when it loads
   useEffect(() => {
-    if (!uri || !judgment || judgment.structured) return;
+    if (!uri || !judgment) return;
 
     const citation = uri.replace(/^\/+|\/+$/g, '');
-    setIsStreaming(true);
-    setStreamingBlocks([]);
-    setStreamError(null);
 
-    const eventSource = new EventSource(`/api/judgment/stream?citation=${encodeURIComponent(citation)}`);
+    async function formatJudgment() {
+      setIsFormatting(true);
+      setFormatError(null);
 
-    eventSource.onmessage = (event) => {
       try {
-        const data = JSON.parse(event.data);
+        console.log('🤖 Formatting judgment with AI...');
+        const response = await fetch(`/api/judgment/stream?citation=${encodeURIComponent(citation)}`);
 
-        if (data.type === 'meta') {
-          console.log(`📊 Stream meta: ${data.totalChunks} chunks`);
-          setStreamProgress({ current: 0, total: data.totalChunks });
-        } else if (data.type === 'block') {
-          console.log(`📝 Received block: [${data.block.type}] ${data.block.text.substring(0, 60)}...`);
-          setStreamingBlocks((prev) => [...prev, data.block]);
-        } else if (data.type === 'chunk_complete') {
-          console.log(`✓ Chunk ${data.index}/${data.total} complete`);
-          setStreamProgress({ current: data.index, total: data.total });
-        } else if (data.type === 'complete') {
-          console.log('✓ Stream complete');
-          setIsStreaming(false);
-          eventSource.close();
-        } else if (data.type === 'error') {
-          console.error('❌ Stream error:', data.message);
-          setStreamError(data.message);
-          setIsStreaming(false);
-          eventSource.close();
+        if (!response.ok) {
+          throw new Error('Failed to format judgment');
         }
+
+        const data = await response.json();
+        console.log('✅ Received formatted blocks:', data.blocks.length);
+        setFormattedBlocks(data.blocks);
       } catch (err) {
-        console.error('Error parsing stream data:', err);
+        console.error('❌ Format error:', err);
+        setFormatError(err instanceof Error ? err.message : 'Unknown error');
+      } finally {
+        setIsFormatting(false);
       }
-    };
+    }
 
-    eventSource.onerror = () => {
-      setStreamError('Connection lost');
-      setIsStreaming(false);
-      eventSource.close();
-    };
-
-    return () => {
-      eventSource.close();
-    };
+    formatJudgment();
   }, [uri, judgment]);
 
   if (!uri) {
@@ -240,65 +221,29 @@ export function JudgmentReader({ uri, onCitationClick, onJudgmentLoad }: Judgmen
       {/* Reading Pane */}
       <div className="flex-1 overflow-y-auto relative">
         <div className="max-w-3xl mx-auto py-12 px-8 lg:px-12">
-          {/* Streaming Progress */}
-          {isStreaming && streamProgress.total > 0 && (
+          {/* Formatting Progress */}
+          {isFormatting && (
             <div className="mb-8 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-              <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-3">
+                <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
                 <span className="text-sm text-blue-700 font-medium">
-                  Structuring judgment... ({streamingBlocks.length} blocks received)
+                  Formatting judgment with AI...
                 </span>
-                <span className="text-xs text-blue-600">
-                  Chunk {streamProgress.current} of {streamProgress.total}
-                </span>
-              </div>
-              <div className="w-full bg-blue-200 rounded-full h-2">
-                <div
-                  className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                  style={{ width: `${(streamProgress.current / streamProgress.total) * 100}%` }}
-                />
               </div>
             </div>
           )}
 
-          {/* Stream Error */}
-          {streamError && (
+          {/* Format Error */}
+          {formatError && (
             <div className="mb-8 p-4 bg-red-50 border border-red-200 rounded-lg">
-              <p className="text-sm text-red-700">Streaming error: {streamError}</p>
+              <p className="text-sm text-red-700">Format error: {formatError}</p>
             </div>
           )}
 
-          {/* Debug Info */}
-          {(streamingBlocks.length > 0 || isStreaming) && (
-            <div className="mb-4 p-3 bg-slate-100 border border-slate-300 rounded text-xs font-mono">
-              <div>Streaming: {isStreaming ? 'YES' : 'NO'}</div>
-              <div>Blocks received: {streamingBlocks.length}</div>
-              <div>Rendering: {streamingBlocks.length > 0 ? 'STRUCTURED BLOCKS' : 'WAITING...'}</div>
-            </div>
-          )}
-
-          {/* Render streaming blocks with fade-in animation */}
-          {streamingBlocks.length > 0 ? (
-            <div className="space-y-6">
-              {streamingBlocks.map((block, idx) => (
-                <div
-                  key={idx}
-                  className="animate-fade-in"
-                  style={{
-                    animationDelay: `${Math.min(idx * 50, 1000)}ms`,
-                    animationFillMode: 'backwards',
-                  }}
-                >
-                  <StructuredBlock
-                    block={block}
-                    onCitationClick={onCitationClick}
-                  />
-                </div>
-              ))}
-            </div>
-          ) : judgment.structured ? (
-            // Render pre-structured content blocks
-            <div className="space-y-6">
-              {judgment.structured.content.map((block, idx) => (
+          {/* Render formatted blocks */}
+          {formattedBlocks.length > 0 ? (
+            <div className="space-y-4">
+              {formattedBlocks.map((block, idx) => (
                 <StructuredBlock
                   key={idx}
                   block={block}
@@ -306,9 +251,9 @@ export function JudgmentReader({ uri, onCitationClick, onJudgmentLoad }: Judgmen
                 />
               ))}
             </div>
-          ) : (
-            // Fallback to legacy plain text rendering
-            <div className="font-serif text-lg leading-loose text-slate-800 judgment-text">
+          ) : !isFormatting && (
+            // Only show raw text if formatting hasn't started yet
+            <div className="font-serif text-lg leading-loose text-slate-800 judgment-text opacity-50">
               <TextHighlighter
                 content={judgment.content}
                 onCitationClick={onCitationClick}
